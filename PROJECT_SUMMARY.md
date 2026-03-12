@@ -44,8 +44,9 @@ Elite CRM is a multi-tenant, AI-first CRM platform for life and health insurance
 - Uploads: `/api/upload`
 - Scraping: `/api/scrape`
 - Sequences: `/api/sequences`, `/api/sequences/run`
+- Sequence enrollment: `/api/sequences/enroll`
 - AI: `/api/ai`, `/api/ai/score`, `/api/ai/feedback`, `/api/ai/my-day`
-- Social: `/api/content`
+- Social: `/api/content`, `/api/content/publish`
 - Appointments: `/api/bookings`
 - Carriers/docs: `/api/carriers`, `/api/carriers/[id]`, `/api/carriers/[id]/documents`, `/api/carriers/[id]/documents/[docId]`
 

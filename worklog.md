@@ -67,3 +67,30 @@
 
 - Rebuilt `cursor_sessionhandoff.md` with detailed completion notes and production-ready plan.
 - Updated `PROJECT_SUMMARY.md` to align with current state.
+
+## 2026-03-12 - Elite Automation Enhancements
+
+### New elite features added
+
+- Added scheduled social publishing runner:
+  - `POST /api/content/publish`
+  - Processes due `ContentQueue` items with status `scheduled`
+  - Publishes items when a matching active `SocialAccount` exists
+  - Logs publish/skip/fail outcomes to `Activity`
+- Added sequence enrollment API:
+  - `GET /api/sequences/enroll`
+  - `POST /api/sequences/enroll`
+  - Supports enrollment creation/reactivation and initializes `nextStepAt`
+  - Writes enrollment audit activity for timeline visibility
+
+### Security/reliability fixes completed
+
+- Caddy SSRF hardening with allowlisted `XTransformPort`.
+- Caddy matcher syntax corrected to valid single-matcher `handle` usage.
+- `.zscripts/start.sh` now traps shutdown signals and cleans all spawned services.
+- `.zscripts/build.sh` now ensures `$BUILD_DIR/db` exists before SQLite migration.
+
+### Verification run
+
+- `npm run lint` passed.
+- `npm run build` passed with all routes generated successfully.
