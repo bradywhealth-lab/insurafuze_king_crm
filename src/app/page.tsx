@@ -634,12 +634,39 @@ function DashboardView() {
 
 // Leads View with CSV Upload - fetches real data from API
 function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAddLead: () => void; onUploadCSV: () => void; onScrape: () => void; refreshKey?: number }) {
+  type CarrierPlaybook = {
+    recommendedCarrier: {
+      id: string | null
+      name: string
+      rationale: string
+      confidence: number
+    }
+    backupCarriers: Array<{
+      id: string | null
+      name: string
+      rationale: string
+    }>
+    suggestedPlanType: string
+    qualificationSummary: string[]
+    objectionHandling: string[]
+    followUpScripts: {
+      callOpening: string
+      sms: string
+      emailSubject: string
+      emailBody: string
+    }
+    nextActions: string[]
+  }
+
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("score")
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [assistantLoading, setAssistantLoading] = useState(false)
+  const [assistantPlaybook, setAssistantPlaybook] = useState<CarrierPlaybook | null>(null)
+  const [assistantSource, setAssistantSource] = useState<'llm' | 'fallback' | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -751,6 +778,35 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       })
+    }
+  }
+
+  const generateCarrierPlaybook = async (leadId: string) => {
+    try {
+      setAssistantLoading(true)
+      const res = await fetch('/api/ai/carrier-playbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setAssistantPlaybook(data.playbook || null)
+      setAssistantSource((data.source as 'llm' | 'fallback') || null)
+      toast({
+        title: 'AI playbook generated',
+        description: data.source === 'fallback'
+          ? 'Generated from rule-based fallback because LLM output was unavailable.'
+          : 'Carrier recommendation and scripts are ready.',
+      })
+    } catch (playbookError) {
+      toast({
+        title: 'Playbook generation failed',
+        description: playbookError instanceof Error ? playbookError.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    } finally {
+      setAssistantLoading(false)
     }
   }
 
@@ -945,7 +1001,15 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
       </Card>
       
       {/* Lead Detail Modal */}
-      <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}>
+      <Dialog
+        open={!!selectedLead}
+        onOpenChange={() => {
+          setSelectedLead(null)
+          setAssistantPlaybook(null)
+          setAssistantSource(null)
+          setAssistantLoading(false)
+        }}
+      >
         <DialogContent className="bg-white border-[#E8E4D9] max-w-2xl">
           {selectedLead && (
             <>
@@ -1000,6 +1064,103 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                   </div>
                 </div>
               </div>
+
+              <Card className="bg-[#FEFCF6] border-[#E8E4D9]">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2 text-black">
+                    <Bot className="w-4 h-4 text-[#D4AF37]" />
+                    AI Carrier Assistant
+                  </CardTitle>
+                  <CardDescription>
+                    Recommends carrier + plan strategy and generates follow-up scripts from lead context and your carrier library.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      className="btn-gold gap-2"
+                      onClick={() => void generateCarrierPlaybook(selectedLead.id)}
+                      disabled={assistantLoading}
+                    >
+                      {assistantLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate pitch playbook
+                        </>
+                      )}
+                    </Button>
+                    {assistantSource && (
+                      <Badge variant="outline" className="border-[#E8E4D9] text-gray-600 capitalize">
+                        Source: {assistantSource}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {assistantPlaybook && (
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-[#E8E4D9] bg-white p-4">
+                        <p className="text-xs text-gray-500">Recommended Carrier</p>
+                        <p className="text-sm font-semibold text-black mt-1">
+                          {assistantPlaybook.recommendedCarrier.name}
+                          <span className="text-xs text-gray-500 ml-2">
+                            ({Math.round((assistantPlaybook.recommendedCarrier.confidence || 0) * 100)}% confidence)
+                          </span>
+                        </p>
+                        <p className="text-sm text-gray-600 mt-2">{assistantPlaybook.recommendedCarrier.rationale}</p>
+                        <p className="text-sm text-[#D4AF37] mt-2">
+                          Plan suggestion: {assistantPlaybook.suggestedPlanType}
+                        </p>
+                      </div>
+
+                      {assistantPlaybook.backupCarriers?.length > 0 && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-2">Backup Carriers</p>
+                          <div className="space-y-2">
+                            {assistantPlaybook.backupCarriers.map((carrier, idx) => (
+                              <div key={`${carrier.name}-${idx}`} className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                                <p className="text-sm font-medium text-black">{carrier.name}</p>
+                                <p className="text-xs text-gray-600 mt-1">{carrier.rationale}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                          <p className="text-xs text-gray-500 mb-2">Qualification Summary</p>
+                          <ul className="text-sm text-gray-700 space-y-1">
+                            {assistantPlaybook.qualificationSummary.map((item, idx) => (
+                              <li key={`qual-${idx}`}>• {item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                          <p className="text-xs text-gray-500 mb-2">Objection Handling</p>
+                          <ul className="text-sm text-gray-700 space-y-1">
+                            {assistantPlaybook.objectionHandling.map((item, idx) => (
+                              <li key={`obj-${idx}`}>• {item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-[#E8E4D9] bg-white p-3 space-y-2">
+                        <p className="text-xs text-gray-500">Follow-up Scripts</p>
+                        <p className="text-sm text-gray-700"><span className="font-medium text-black">Call opening:</span> {assistantPlaybook.followUpScripts.callOpening}</p>
+                        <p className="text-sm text-gray-700"><span className="font-medium text-black">SMS:</span> {assistantPlaybook.followUpScripts.sms}</p>
+                        <p className="text-sm text-gray-700"><span className="font-medium text-black">Email subject:</span> {assistantPlaybook.followUpScripts.emailSubject}</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap"><span className="font-medium text-black">Email body:</span> {assistantPlaybook.followUpScripts.emailBody}</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
               
               <div className="flex justify-end gap-3">
                 <Button variant="outline" className="border-[#E8E4D9] text-black hover:bg-[#F8F4E8]">
