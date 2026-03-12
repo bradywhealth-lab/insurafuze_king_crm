@@ -25,6 +25,14 @@ type PlaybookResponse = {
     emailBody: string
   }
   nextActions: string[]
+  citations: Array<{
+    carrierId: string | null
+    carrierName: string
+    documentId: string
+    documentName: string
+    chunkIndex: number
+    snippet: string
+  }>
 }
 
 function safeJsonParse<T>(input: string): T | null {
@@ -87,7 +95,100 @@ function fallbackPlaybook(lead: {
       'Send SMS summary and request preferred call slot.',
       lead.aiNextAction || 'Execute the next best follow-up in CRM.',
     ],
+    citations: [],
   }
+}
+
+type RetrievedChunk = {
+  score: number
+  carrierId: string | null
+  carrierName: string
+  documentId: string
+  documentName: string
+  chunkIndex: number
+  content: string
+}
+
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9]{3,}/g) || []).slice(0, 500)
+}
+
+function buildLeadQueryText(lead: {
+  firstName: string | null
+  lastName: string | null
+  company: string | null
+  title: string | null
+  status: string
+  source: string | null
+  aiNextAction: string | null
+  notes: Array<{ content: string }>
+  activities: Array<{ title: string; description: string | null; type: string }>
+}) {
+  const notesText = lead.notes.map((n) => n.content).join(' ')
+  const activityText = lead.activities
+    .map((a) => `${a.type} ${a.title} ${a.description || ''}`.trim())
+    .join(' ')
+
+  return [
+    lead.firstName,
+    lead.lastName,
+    lead.company,
+    lead.title,
+    lead.status,
+    lead.source,
+    lead.aiNextAction,
+    notesText,
+    activityText,
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function retrieveTopChunks(
+  queryText: string,
+  chunks: Array<{
+    chunkIndex: number
+    content: string
+    carrierDocument: {
+      id: string
+      name: string
+      carrier: { id: string; name: string }
+    }
+  }>
+): RetrievedChunk[] {
+  const queryTokens = tokenize(queryText)
+  if (queryTokens.length === 0) return []
+  const queryTokenSet = new Set(queryTokens)
+
+  const scored: RetrievedChunk[] = chunks
+    .map((chunk) => {
+      const chunkTokens = tokenize(chunk.content)
+      if (chunkTokens.length === 0) return null
+      let overlap = 0
+      for (const token of chunkTokens) {
+        if (queryTokenSet.has(token)) overlap++
+      }
+      const uniqueOverlap = overlap / Math.max(1, new Set(chunkTokens).size)
+      const boost = /underwriting|eligibility|knockout|decline|risk class|prescription|bmi|tobacco|age/i.test(chunk.content)
+        ? 0.05
+        : 0
+      const score = uniqueOverlap + boost
+      if (score <= 0) return null
+
+      return {
+        score,
+        carrierId: chunk.carrierDocument.carrier.id,
+        carrierName: chunk.carrierDocument.carrier.name,
+        documentId: chunk.carrierDocument.id,
+        documentName: chunk.carrierDocument.name,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+      }
+    })
+    .filter((c): c is RetrievedChunk => !!c)
+    .sort((a, b) => b.score - a.score)
+
+  return scored.slice(0, 8)
 }
 
 export async function POST(request: NextRequest) {
@@ -172,8 +273,70 @@ export async function POST(request: NextRequest) {
       })),
     }))
 
+    const candidateChunks = await db.carrierDocumentChunk.findMany({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        carrierDocument: {
+          carrier: {
+            organizationId: ORGANIZATION_ID,
+          },
+        },
+      },
+      include: {
+        carrierDocument: {
+          select: {
+            id: true,
+            name: true,
+            carrier: {
+              select: { id: true, name: true },
+            },
+          },
+        },
+      },
+      take: 600,
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const leadQueryText = buildLeadQueryText({
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      company: lead.company,
+      title: lead.title,
+      status: lead.status,
+      source: lead.source,
+      aiNextAction: lead.aiNextAction,
+      notes: lead.notes,
+      activities: lead.activities.map((a) => ({
+        title: a.title,
+        description: a.description,
+        type: a.type,
+      })),
+    })
+    const topChunks = retrieveTopChunks(
+      leadQueryText,
+      candidateChunks.map((c) => ({
+        chunkIndex: c.chunkIndex,
+        content: c.content,
+        carrierDocument: {
+          id: c.carrierDocument.id,
+          name: c.carrierDocument.name,
+          carrier: c.carrierDocument.carrier,
+        },
+      }))
+    )
+
+    const knowledgeContext = topChunks.map((chunk, idx) => ({
+      citationId: idx + 1,
+      carrierId: chunk.carrierId,
+      carrierName: chunk.carrierName,
+      documentId: chunk.documentId,
+      documentName: chunk.documentName,
+      chunkIndex: chunk.chunkIndex,
+      snippet: chunk.content.slice(0, 700),
+    }))
+
     const prompt = `You are an elite life and health insurance broker assistant.
-Given lead qualification context plus carrier underwriting materials metadata, return:
+Given lead qualification context plus carrier underwriting materials metadata and retrieved underwriting snippets, return:
 1) best carrier recommendation
 2) backup carriers
 3) suggested plan type
@@ -187,6 +350,9 @@ ${JSON.stringify(compactLead)}
 
 Carrier library context:
 ${JSON.stringify(compactCarriers)}
+
+Retrieved underwriting snippets (use these for grounded recommendations):
+${JSON.stringify(knowledgeContext)}
 
 Additional broker context:
 ${extraContext || 'N/A'}
@@ -204,7 +370,15 @@ Respond as strict JSON only using this schema:
     "emailSubject": "string",
     "emailBody": "string"
   },
-  "nextActions": ["string"]
+  "nextActions": ["string"],
+  "citations": [{
+    "carrierId": "string|null",
+    "carrierName": "string",
+    "documentId": "string",
+    "documentName": "string",
+    "chunkIndex": 0,
+    "snippet": "string"
+  }]
 }`
 
     try {
@@ -218,6 +392,16 @@ Respond as strict JSON only using this schema:
       const parsed = safeJsonParse<PlaybookResponse>(jsonCandidate)
 
       if (parsed && parsed.recommendedCarrier?.name && parsed.followUpScripts?.sms) {
+        if (!Array.isArray(parsed.citations) || parsed.citations.length === 0) {
+          parsed.citations = knowledgeContext.slice(0, 4).map((k) => ({
+            carrierId: k.carrierId,
+            carrierName: k.carrierName,
+            documentId: k.documentId,
+            documentName: k.documentName,
+            chunkIndex: k.chunkIndex,
+            snippet: k.snippet,
+          }))
+        }
         return NextResponse.json({ playbook: parsed, source: 'llm' })
       }
     } catch (error) {
@@ -238,6 +422,14 @@ Respond as strict JSON only using this schema:
       },
       carriers.map((c) => ({ id: c.id, name: c.name }))
     )
+    fallback.citations = knowledgeContext.slice(0, 4).map((k) => ({
+      carrierId: k.carrierId,
+      carrierName: k.carrierName,
+      documentId: k.documentId,
+      documentName: k.documentName,
+      chunkIndex: k.chunkIndex,
+      snippet: k.snippet,
+    }))
     return NextResponse.json({ playbook: fallback, source: 'fallback' })
   } catch (error) {
     console.error('Carrier playbook error:', error)

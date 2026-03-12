@@ -45,6 +45,7 @@ model Organization {
   predictiveModels PredictiveModel[]
   carriers    Carrier[]
   carrierDocuments CarrierDocument[]
+  carrierDocumentChunks CarrierDocumentChunk[]
   scrapeJobs  ScrapeJob[]
   scrapedContacts ScrapedContact[]
 }
@@ -517,11 +518,32 @@ model CarrierDocument {
   fileType       String?
   fileSize       Int?
   version        String?
+  extractedText  String?
+  indexedAt      DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  chunks         CarrierDocumentChunk[]
+
   @@index([organizationId])
   @@index([carrierId])
+}
+
+model CarrierDocumentChunk {
+  id                String   @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  carrierDocumentId String
+  carrierDocument   CarrierDocument @relation(fields: [carrierDocumentId], references: [id], onDelete: Cascade)
+  chunkIndex        Int
+  content           String
+  contentPreview    String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+
+  @@unique([carrierDocumentId, chunkIndex])
+  @@index([organizationId])
+  @@index([carrierDocumentId])
 }
 
 // ============================================

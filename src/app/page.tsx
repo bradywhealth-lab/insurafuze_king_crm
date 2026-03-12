@@ -656,6 +656,14 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
       emailBody: string
     }
     nextActions: string[]
+    citations: Array<{
+      carrierId: string | null
+      carrierName: string
+      documentId: string
+      documentName: string
+      chunkIndex: number
+      snippet: string
+    }>
   }
 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
@@ -1157,6 +1165,20 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                         <p className="text-sm text-gray-700"><span className="font-medium text-black">Email subject:</span> {assistantPlaybook.followUpScripts.emailSubject}</p>
                         <p className="text-sm text-gray-700 whitespace-pre-wrap"><span className="font-medium text-black">Email body:</span> {assistantPlaybook.followUpScripts.emailBody}</p>
                       </div>
+
+                      {assistantPlaybook.citations?.length > 0 && (
+                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3 space-y-2">
+                          <p className="text-xs text-gray-500">Grounding Citations</p>
+                          {assistantPlaybook.citations.slice(0, 4).map((c, idx) => (
+                            <div key={`${c.documentId}-${c.chunkIndex}-${idx}`} className="rounded border border-[#F2EEE1] bg-[#FEFCF6] p-2">
+                              <p className="text-xs font-medium text-black">
+                                {c.carrierName} - {c.documentName} (chunk {c.chunkIndex})
+                              </p>
+                              <p className="text-xs text-gray-600 mt-1">{c.snippet}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
