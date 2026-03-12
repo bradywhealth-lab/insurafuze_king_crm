@@ -188,7 +188,16 @@ function retrieveTopChunks(
     .filter((c): c is RetrievedChunk => !!c)
     .sort((a, b) => b.score - a.score)
 
-  return scored.slice(0, 8)
+  return scored
+    .filter((item) => item.score >= 0.02 && item.content.length >= 60)
+    .slice(0, 8)
+}
+
+function calibrateConfidence(baseLeadScore: number, evidenceCount: number, topEvidenceScore: number): number {
+  const scoreSignal = Math.max(0.45, Math.min(0.9, 0.45 + baseLeadScore / 220))
+  const evidenceSignal = Math.min(0.2, evidenceCount * 0.03)
+  const qualitySignal = Math.min(0.12, Math.max(0, topEvidenceScore) * 0.8)
+  return Math.max(0.5, Math.min(0.96, scoreSignal + evidenceSignal + qualitySignal))
 }
 
 export async function POST(request: NextRequest) {
@@ -392,6 +401,11 @@ Respond as strict JSON only using this schema:
       const parsed = safeJsonParse<PlaybookResponse>(jsonCandidate)
 
       if (parsed && parsed.recommendedCarrier?.name && parsed.followUpScripts?.sms) {
+        parsed.recommendedCarrier.confidence = calibrateConfidence(
+          lead.aiScore,
+          topChunks.length,
+          topChunks[0]?.score || 0
+        )
         if (!Array.isArray(parsed.citations) || parsed.citations.length === 0) {
           parsed.citations = knowledgeContext.slice(0, 4).map((k) => ({
             carrierId: k.carrierId,
@@ -402,6 +416,10 @@ Respond as strict JSON only using this schema:
             snippet: k.snippet,
           }))
         }
+        parsed.citations = parsed.citations
+          .filter((c) => typeof c.snippet === 'string' && c.snippet.trim().length >= 50)
+          .slice(0, 6)
+
         return NextResponse.json({ playbook: parsed, source: 'llm' })
       }
     } catch (error) {
@@ -430,6 +448,11 @@ Respond as strict JSON only using this schema:
       chunkIndex: k.chunkIndex,
       snippet: k.snippet,
     }))
+    fallback.recommendedCarrier.confidence = calibrateConfidence(
+      lead.aiScore,
+      topChunks.length,
+      topChunks[0]?.score || 0
+    )
     return NextResponse.json({ playbook: fallback, source: 'fallback' })
   } catch (error) {
     console.error('Carrier playbook error:', error)

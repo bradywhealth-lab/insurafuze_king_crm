@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { isInternalRunnerAuthorized } from '@/lib/internal-runner'
 
 const ORGANIZATION_ID = 'demo-org-1'
 
@@ -11,6 +12,10 @@ const ORGANIZATION_ID = 'demo-org-1'
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!isInternalRunnerAuthorized(request)) {
+      return NextResponse.json({ error: 'Unauthorized runner request' }, { status: 401 })
+    }
+
     const body = await request.json().catch(() => ({}))
     const limit = Math.max(1, Math.min(100, Number(body.limit) || 25))
     const now = new Date()
