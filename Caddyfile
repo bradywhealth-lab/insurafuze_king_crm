@@ -4,9 +4,12 @@
 	}
 
 	# Allowlist transform ports to prevent query-driven SSRF to arbitrary localhost services.
-	@allowed_transform_port expression `{query.XTransformPort}.matches("^(3003)$")`
+	@allowed_transform_port {
+		query XTransformPort=*
+		expression `{query.XTransformPort}.matches("^(3003)$")`
+	}
 
-	handle @transform_port_query @allowed_transform_port {
+	handle @allowed_transform_port {
 		reverse_proxy localhost:{query.XTransformPort} {
 			header_up Host {host}
 			header_up X-Forwarded-For {remote_host}
