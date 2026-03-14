@@ -1101,3 +1101,21 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "UserSession" ADD CONSTRAINT "UserSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Enable row level security for all API-exposed tables.
+DO $$
+DECLARE
+    table_name TEXT;
+    table_names TEXT[] := ARRAY[
+        'AIFeedback', 'Organization', 'User', 'Lead', 'CSVUpload', 'Note', 'Tag', 'LeadTag', 'CustomField',
+        'Pipeline', 'PipelineStage', 'PipelineItem', 'Automation', 'AutomationLog', 'Sequence', 'SequenceStep',
+        'SequenceEnrollment', 'Activity', 'Campaign', 'ContentQueue', 'SocialAccount', 'ScrapeJob', 'ScrapedContact',
+        'Carrier', 'CarrierDocument', 'CarrierDocumentChunk', 'Integration', 'Webhook', 'Template', 'AIModelConfig',
+        'AIInsight', 'TeamMember', 'LeadAssignment', 'TeamActivity', 'LeadScoreHistory', 'PredictiveModel', 'Quote',
+        'QuoteLineItem', 'QuoteVersion', 'MessageThread', 'Message', 'AuditLog', 'UserSession'
+    ];
+BEGIN
+    FOREACH table_name IN ARRAY table_names LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
+    END LOOP;
+END $$;
