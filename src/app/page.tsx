@@ -1271,10 +1271,11 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
 function SortableItem({ item }: { item: PipelineItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   
-  const style = {
+  const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+    touchAction: 'none',
   }
   
   return (
@@ -1472,7 +1473,7 @@ function PipelineView() {
               </div>
               
               {/* Column Content */}
-              <ScrollArea className="h-[calc(100vh-320px)]">
+              <div className="overflow-y-auto h-[calc(100vh-320px)]">
                 <DroppableColumn id={stage.id}>
                   <SortableContext items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
                     {stage.items.map((item) => (
@@ -1486,7 +1487,7 @@ function PipelineView() {
                     </div>
                   )}
                 </DroppableColumn>
-              </ScrollArea>
+              </div>
             </div>
           ))}
         </div>
