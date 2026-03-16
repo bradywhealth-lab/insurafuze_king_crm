@@ -433,12 +433,14 @@ Respond as strict JSON only using this schema:
 }`
 
     try {
-      const { LLM } = await import('z-ai-web-dev-sdk')
-      const result = await LLM.chat({
+      const ZAI = (await import('z-ai-web-dev-sdk')).default
+      const client = await ZAI.create()
+      const result = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        model: 'claude-3-5-sonnet-20241022',
       })
-      const content = typeof result.content === 'string' ? result.content : ''
+      const choice = (result as { choices?: { message?: { content?: string } }[] }).choices?.[0]
+      const content = choice?.message?.content ?? ''
       const jsonCandidate = content.match(/\{[\s\S]*\}/)?.[0] || ''
       const parsed = safeJsonParse<PlaybookResponse>(jsonCandidate)
 

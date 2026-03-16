@@ -8,6 +8,19 @@ const aiRequestSchema = z.object({
   data: z.record(z.string(), z.unknown()).default({}),
 })
 
+async function getAiClient() {
+  const ZAI = (await import('z-ai-web-dev-sdk')).default
+  return ZAI.create()
+}
+
+async function chatCompletion(messages: { role: string; content: string }[], model = 'gpt-4o-mini'): Promise<string> {
+  const client = await getAiClient()
+  const result = await client.chat.completions.create({ model, messages })
+  // OpenAI-compatible response format
+  const choice = (result as { choices?: { message?: { content?: string } }[] }).choices?.[0]
+  return choice?.message?.content ?? ''
+}
+
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
   try {
@@ -16,9 +29,6 @@ export async function POST(request: NextRequest) {
     const parsed = await parseJsonBody(request, aiRequestSchema)
     if (!parsed.success) return parsed.response
     const { action, data } = parsed.data
-    
-    // Dynamic import for server-side only
-    const { LLM } = await import('z-ai-web-dev-sdk')
     
     switch (action) {
       case 'score-lead': {
@@ -47,16 +57,15 @@ Respond in JSON format:
   "tags": ["tag1", "tag2"]
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        // Parse the JSON response
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        try {
+          const content = await chatCompletion([{ role: 'user', content: prompt }])
+          const jsonMatch = content.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            return NextResponse.json(parsed)
+          }
+        } catch (aiError) {
+          console.error('AI score lead error:', aiError)
         }
         
         return NextResponse.json({
@@ -87,22 +96,19 @@ Provide the response in JSON format:
   "bestTimeToPost": "<suggested time>"
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json({
-            ...parsed,
-            aiGenerated: true
-          })
+        try {
+          const content = await chatCompletion([{ role: 'user', content: prompt }])
+          const jsonMatch = content.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            return NextResponse.json({ ...parsed, aiGenerated: true })
+          }
+        } catch (aiError) {
+          console.error('AI generate content error:', aiError)
         }
         
         return NextResponse.json({
-          title: topic,
+          title: String(topic),
           content: `Check out our latest insights on ${topic}! #Business #Growth`,
           hashtags: ['#Business', '#Growth'],
           bestTimeToPost: '9:00 AM',
@@ -123,18 +129,15 @@ Return JSON:
   "cta": "<call to action>"
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json({
-            ...parsed,
-            aiGenerated: true
-          })
+        try {
+          const content = await chatCompletion([{ role: 'user', content: prompt }])
+          const jsonMatch = content.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            return NextResponse.json({ ...parsed, aiGenerated: true })
+          }
+        } catch (aiError) {
+          console.error('AI generate media error:', aiError)
         }
 
         return NextResponse.json({
@@ -168,25 +171,24 @@ Provide 3-5 insights in JSON format:
   ]
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        try {
+          const content = await chatCompletion([{ role: 'user', content: prompt }])
+          const jsonMatch = content.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            return NextResponse.json(parsed)
+          }
+        } catch (aiError) {
+          console.error('AI generate insights error:', aiError)
         }
         
-        // Fallback insights
         return NextResponse.json({
           insights: [
             {
               type: 'recommendation',
               category: 'leads',
               title: 'Follow-up with high-score leads',
-              description: 'You have leads with scores above 80 that haven\'t been contacted recently.',
+              description: "You have leads with scores above 80 that haven't been contacted recently.",
               confidence: 0.9,
               actionable: true
             },
@@ -209,19 +211,20 @@ Provide 3-5 insights in JSON format:
 You help users manage leads, analyze data, and optimize their sales process.
 Be concise, professional, and actionable in your responses.
 Context: ${JSON.stringify(context)}`
-        
-        const result = await LLM.chat({
-          messages: [
+
+        try {
+          const content = await chatCompletion([
             { role: 'system', content: systemPrompt },
-            ...messages
-          ],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        return NextResponse.json({
-          message: result.content,
-          success: true
-        })
+            ...((messages as { role: string; content: string }[]) || [])
+          ])
+          return NextResponse.json({ message: content, success: true })
+        } catch (aiError) {
+          console.error('AI chat error:', aiError)
+          return NextResponse.json({
+            message: 'I am here to help with your CRM needs. How can I assist you today?',
+            success: true
+          })
+        }
       }
       
       default:
@@ -243,7 +246,7 @@ export async function GET(request: NextRequest) {
   if (action === 'status') {
     return NextResponse.json({
       status: 'operational',
-      models: ['claude-3-5-sonnet-20241022'],
+      models: ['gpt-4o-mini'],
       features: ['lead-scoring', 'content-generation', 'insights', 'chat']
     })
   }

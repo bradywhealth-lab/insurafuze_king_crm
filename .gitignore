@@ -60,9 +60,10 @@ db/
 # ------------------------------
 # Repo-local generated data
 # ------------------------------
-upload/
+/upload/
 download/
 public/uploads/
+!src/app/api/upload/
 
 # ------------------------------
 # Tooling / IDE / OS

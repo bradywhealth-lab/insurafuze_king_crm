@@ -57,11 +57,20 @@ export async function POST(request: NextRequest) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '')
 
+    let finalSlug = normalizedSlug
+    const existing = await db.carrier.findFirst({
+      where: { organizationId: context.organizationId, slug: normalizedSlug },
+      select: { id: true },
+    })
+    if (existing) {
+      finalSlug = `${normalizedSlug}-${Date.now().toString(36)}`
+    }
+
     const carrier = await db.carrier.create({
       data: {
         organizationId: context.organizationId,
         name: name.trim(),
-        slug: normalizedSlug,
+        slug: finalSlug,
         logoUrl: logoUrl?.trim() || null,
         website: website?.trim() || null,
         notes: notes?.trim() || null,
