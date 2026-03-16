@@ -22,3 +22,21 @@ Elite CRM — a multi-tenant, AI-first CRM platform for insurance broker workflo
 - **Database bootstrap**: After installing PostgreSQL and creating the `elite_crm` database, run `npx prisma db push` then `npx prisma db seed` to populate demo data. Optionally run `node scripts/apply-init-sql.mjs` to apply RLS policies.
 - **Supabase / AI keys**: Placeholder values in `.env` are sufficient for the app to start. Carrier document uploads and AI features will degrade without real keys.
 - **`postinstall` script** runs `prisma generate` automatically after `bun install`.
+
+### Environment variables
+
+When no injected secrets are present, the cloud agent bootstraps a local PostgreSQL instance and writes a `.env` with `DATABASE_URL=postgresql://elite_user:elite_pass@localhost:5432/elite_crm` plus placeholder values. This is enough for the app to start, lint, and pass tests.
+
+For full functionality (AI routes, Supabase storage, etc.), add the following secrets via the Cursor Secrets panel:
+
+| Secret | Required for |
+|---|---|
+| `DATABASE_URL` | Core app (local PG is used if absent) |
+| `SUPABASE_URL` | Carrier document uploads |
+| `SUPABASE_SERVICE_ROLE_KEY` | Carrier document uploads |
+| `OPENAI_API_KEY` | AI features (or use `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`) |
+| `INTERNAL_RUNNER_KEY` | Internal runner endpoint auth |
+| `APP_BASE_URL` | Runner scripts |
+| `RUNNER_ORGANIZATION_ID` | Runner scripts |
+
+Optional: `LINEAR_API_KEY`, `SCRAPINGBEE_API_KEY`, `FIRECRAWL_API_KEY`, `SCRAPER_PROXY_URL_TEMPLATE`, `TRUST_PROXY`, `DEV_DEFAULT_ORG_ID`.
