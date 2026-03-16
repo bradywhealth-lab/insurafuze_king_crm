@@ -3145,7 +3145,15 @@ function SettingsView() {
 }
 
 // Add Lead Dialog - full form
-function AddLeadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function AddLeadDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onCreated?: () => void
+}) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     firstName: '',
@@ -3177,6 +3185,7 @@ function AddLeadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to create lead')
       setForm({ firstName: '', lastName: '', email: '', phone: '', company: '', title: '', source: 'manual', estimatedValue: '' })
+      onCreated?.()
       onOpenChange(false)
     } catch (err) {
       console.error(err)
@@ -3428,7 +3437,11 @@ export default function EliteCRM() {
       </div>
       
       {/* Add Lead Dialog */}
-      <AddLeadDialog open={showAddLeadDialog} onOpenChange={setShowAddLeadDialog} />
+      <AddLeadDialog
+        open={showAddLeadDialog}
+        onOpenChange={setShowAddLeadDialog}
+        onCreated={() => setLeadsRefreshKey((k) => k + 1)}
+      />
       
       {/* Upload CSV Dialog (global) */}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
