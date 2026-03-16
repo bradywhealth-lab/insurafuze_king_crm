@@ -1432,23 +1432,21 @@ function PipelineView() {
                 </Button>
               </div>
               
-              {/* Column Content - DroppableColumn must be direct child for correct hit area */}
+              {/* Column Content - use plain overflow div so pointer events aren't blocked */}
               <DroppableColumn id={stage.id}>
-                <ScrollArea className="h-[calc(100vh-320px)]">
-                  <div className="p-2">
-                    <SortableContext id={stage.id} items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-                      {stage.items.map((item) => (
-                        <SortableItem key={item.id} item={item} />
-                      ))}
-                    </SortableContext>
-                    
-                    {stage.items.length === 0 && (
-                      <div className="text-center py-8 text-gray-400 text-sm">
-                        No deals in this stage
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
+                <div className="h-[calc(100vh-320px)] overflow-y-auto p-2">
+                  <SortableContext id={stage.id} items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                    {stage.items.map((item) => (
+                      <SortableItem key={item.id} item={item} />
+                    ))}
+                  </SortableContext>
+                  
+                  {stage.items.length === 0 && (
+                    <div className="text-center py-8 text-gray-400 text-sm">
+                      No deals in this stage
+                    </div>
+                  )}
+                </div>
               </DroppableColumn>
             </div>
           ))}
