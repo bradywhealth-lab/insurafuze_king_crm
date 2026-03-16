@@ -35,7 +35,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { useAppStore, type Lead, type PipelineItem, type Activity as ActivityType, type AIInsight } from "@/lib/store"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, useDroppable } from "@dnd-kit/core"
+import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent, useDroppable, DragOverlay } from "@dnd-kit/core"
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
@@ -1315,7 +1315,7 @@ function SortableItem({ item }: { item: PipelineItem }) {
 function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <div ref={setNodeRef} className={cn("flex-1 min-h-[100px] transition-colors", isOver && "bg-[#D4AF37]/5 rounded-lg")}>
+    <div ref={setNodeRef} className={cn("flex-1 h-full transition-colors rounded-b-lg", isOver && "bg-[#D4AF37]/5")}>
       {children}
     </div>
   )
@@ -1323,9 +1323,10 @@ function DroppableColumn({ id, children }: { id: string; children: React.ReactNo
 
 function PipelineView() {
   const [stages, setStages] = useState(mockPipelineStages)
+  const [activeItem, setActiveItem] = useState<PipelineItem | null>(null)
   
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
   
@@ -1396,16 +1397,28 @@ function PipelineView() {
       </div>
       
       {/* Kanban Board */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={(e) => {
+          const item = stages.flatMap(s => s.items).find(i => i.id === String(e.active.id))
+          setActiveItem(item ?? null)
+        }}
+        onDragEnd={(e) => {
+          setActiveItem(null)
+          handleDragEnd(e)
+        }}
+        onDragCancel={() => setActiveItem(null)}
+      >
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => (
             <div
               key={stage.id}
-              className="shrink-0 w-[300px] bg-white rounded-lg border border-[#E8E4D9] shadow-sm"
+              className="shrink-0 w-[300px] bg-white rounded-lg border border-[#E8E4D9] shadow-sm flex flex-col"
             >
               {/* Column Header */}
               <div
-                className="p-3 border-b border-[#E8E4D9] flex items-center justify-between"
+                className="p-3 border-b border-[#E8E4D9] flex items-center justify-between shrink-0"
                 style={{ borderTopLeftRadius: 8, borderTopRightRadius: 8, borderTop: `3px solid ${stage.color}` }}
               >
                 <div className="flex items-center gap-2">
@@ -1419,11 +1432,11 @@ function PipelineView() {
                 </Button>
               </div>
               
-              {/* Column Content */}
-              <ScrollArea className="h-[calc(100vh-320px)]">
-                <DroppableColumn id={stage.id}>
+              {/* Column Content - DroppableColumn must be direct child for correct hit area */}
+              <DroppableColumn id={stage.id}>
+                <ScrollArea className="h-[calc(100vh-320px)]">
                   <div className="p-2">
-                    <SortableContext items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                    <SortableContext id={stage.id} items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
                       {stage.items.map((item) => (
                         <SortableItem key={item.id} item={item} />
                       ))}
@@ -1435,11 +1448,26 @@ function PipelineView() {
                       </div>
                     )}
                   </div>
-                </DroppableColumn>
-              </ScrollArea>
+                </ScrollArea>
+              </DroppableColumn>
             </div>
           ))}
         </div>
+        <DragOverlay>
+          {activeItem && (
+            <Card className="bg-white border-[#D4AF37] shadow-lg mb-2 opacity-90 w-[280px]">
+              <CardContent className="p-3">
+                <h4 className="text-sm font-medium text-black truncate">{activeItem.title}</h4>
+                {activeItem.value && <p className="text-lg font-semibold text-black mt-1">${activeItem.value.toLocaleString()}</p>}
+                {activeItem.aiWinProbability && (
+                  <Badge variant="outline" className="text-xs border-[#D4AF37]/50 text-[#D4AF37] mt-2">
+                    {Math.round(activeItem.aiWinProbability * 100)}% win
+                  </Badge>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </DragOverlay>
       </DndContext>
     </div>
   )
