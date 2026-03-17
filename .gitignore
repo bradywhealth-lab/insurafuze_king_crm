@@ -82,6 +82,7 @@ Thumbs.db
 # Local scratch / misc
 # ------------------------------
 local-*
+.local-object-storage/
 tmp/
 temp/
 test/

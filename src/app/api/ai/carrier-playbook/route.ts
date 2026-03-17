@@ -108,7 +108,7 @@ function fallbackPlaybook(lead: {
 
 type RetrievedChunk = {
   score: number
-  carrierId: string | null
+  carrierId: string
   carrierName: string
   documentId: string
   documentName: string
@@ -176,35 +176,36 @@ function retrieveTopChunks(
   if (queryTokens.length === 0) return []
   const queryTokenSet = new Set(queryTokens)
 
-  const scored = chunks
-    .map((chunk) => {
-      const chunkTokens = tokenize(chunk.content)
-      if (chunkTokens.length === 0) return null
-      let overlap = 0
-      for (const token of chunkTokens) {
-        if (queryTokenSet.has(token)) overlap++
-      }
-      const uniqueOverlap = overlap / Math.max(1, new Set(chunkTokens).size)
-      const boost = /underwriting|eligibility|knockout|decline|risk class|prescription|bmi|tobacco|age/i.test(chunk.content)
-        ? 0.05
-        : 0
-      const score = uniqueOverlap + boost
-      if (score <= 0) return null
+  const scored: RetrievedChunk[] = []
+  for (const chunk of chunks) {
+    const chunkTokens = tokenize(chunk.content)
+    if (chunkTokens.length === 0) continue
 
-      return {
-        score,
-        carrierId: chunk.carrierDocument.carrier.id ?? null,
-        carrierName: chunk.carrierDocument.carrier.name,
-        documentId: chunk.carrierDocument.id,
-        documentName: chunk.carrierDocument.name,
-        chunkIndex: chunk.chunkIndex,
-        content: chunk.content,
-      }
+    let overlap = 0
+    for (const token of chunkTokens) {
+      if (queryTokenSet.has(token)) overlap++
+    }
+
+    const uniqueOverlap = overlap / Math.max(1, new Set(chunkTokens).size)
+    const boost = /underwriting|eligibility|knockout|decline|risk class|prescription|bmi|tobacco|age/i.test(chunk.content)
+      ? 0.05
+      : 0
+    const score = uniqueOverlap + boost
+    if (score <= 0) continue
+
+    scored.push({
+      score,
+      carrierId: chunk.carrierDocument.carrier.id,
+      carrierName: chunk.carrierDocument.carrier.name,
+      documentId: chunk.carrierDocument.id,
+      documentName: chunk.carrierDocument.name,
+      chunkIndex: chunk.chunkIndex,
+      content: chunk.content,
     })
-    .filter((c): c is RetrievedChunk => c !== null)
-    .sort((a, b) => b.score - a.score)
+  }
 
   return scored
+    .sort((a, b) => b.score - a.score)
     .filter((item) => item.score >= 0.02 && item.content.length >= 60)
     .slice(0, 8)
 }

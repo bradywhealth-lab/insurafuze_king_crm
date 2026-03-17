@@ -45,6 +45,11 @@ function asNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+function toLlmRole(value: unknown): LlmMessage['role'] {
+  if (value === 'assistant' || value === 'system') return value
+  return 'user'
+}
+
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
   try {
@@ -241,11 +246,8 @@ Provide 3-5 insights in JSON format:
         const messages = Array.isArray(data.messages)
           ? data.messages
               .filter((m): m is Record<string, unknown> => !!m && typeof m === 'object')
-              .map((m) => ({
-                role:
-                  m.role === 'assistant' || m.role === 'system' || m.role === 'user'
-                    ? m.role
-                    : 'user',
+              .map((m): LlmMessage => ({
+                role: toLlmRole(m.role),
                 content: typeof m.content === 'string' ? m.content : '',
               }))
               .filter((m) => m.content.length > 0)
