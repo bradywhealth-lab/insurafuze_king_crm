@@ -61,6 +61,8 @@ db/
 # Repo-local generated data
 # ------------------------------
 upload/
+!src/app/api/upload/
+!src/app/api/upload/route.ts
 download/
 public/uploads/
 

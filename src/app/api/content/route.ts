@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
@@ -123,16 +124,7 @@ export async function PATCH(request: NextRequest) {
     const parsed = await parseJsonBody(request, patchContentSchema)
     if (!parsed.success) return parsed.response
     const body = parsed.data
-    const updateData: {
-      title?: string | null
-      content?: string
-      status?: string
-      platform?: string
-      scheduledFor?: Date | null
-      publishedAt?: Date | null
-      publishedUrl?: string | null
-      mediaUrls?: string[] | null
-    } = {}
+    const updateData: Prisma.ContentQueueUpdateManyMutationInput = {}
 
     if (typeof body.title === 'string') updateData.title = body.title.trim() || null
     if (typeof body.content === 'string') updateData.content = body.content.trim()
@@ -145,7 +137,11 @@ export async function PATCH(request: NextRequest) {
       updateData.publishedAt = body.publishedAt ? new Date(body.publishedAt) : null
     }
     if (body.publishedUrl !== undefined) updateData.publishedUrl = body.publishedUrl || null
-    if (body.mediaUrls !== undefined) updateData.mediaUrls = Array.isArray(body.mediaUrls) ? body.mediaUrls : null
+    if (body.mediaUrls !== undefined) {
+      updateData.mediaUrls = Array.isArray(body.mediaUrls)
+        ? (body.mediaUrls as Prisma.InputJsonValue)
+        : Prisma.JsonNull
+    }
 
     const updated = await db.contentQueue.updateMany({
       where: { id, organizationId: context.organizationId },

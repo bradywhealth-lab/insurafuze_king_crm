@@ -176,7 +176,7 @@ function retrieveTopChunks(
   if (queryTokens.length === 0) return []
   const queryTokenSet = new Set(queryTokens)
 
-  const scored: RetrievedChunk[] = chunks
+  const scored = chunks
     .map((chunk) => {
       const chunkTokens = tokenize(chunk.content)
       if (chunkTokens.length === 0) return null
@@ -193,7 +193,7 @@ function retrieveTopChunks(
 
       return {
         score,
-        carrierId: chunk.carrierDocument.carrier.id,
+        carrierId: chunk.carrierDocument.carrier.id ?? null,
         carrierName: chunk.carrierDocument.carrier.name,
         documentId: chunk.carrierDocument.id,
         documentName: chunk.carrierDocument.name,
@@ -201,7 +201,7 @@ function retrieveTopChunks(
         content: chunk.content,
       }
     })
-    .filter((c): c is RetrievedChunk => !!c)
+    .filter((c): c is RetrievedChunk => c !== null)
     .sort((a, b) => b.score - a.score)
 
   return scored
@@ -433,11 +433,15 @@ Respond as strict JSON only using this schema:
 }`
 
     try {
-      const { LLM } = await import('z-ai-web-dev-sdk')
-      const result = await LLM.chat({
+      const sdk: unknown = await import('z-ai-web-dev-sdk')
+      const llm = (sdk as { LLM?: { chat?: unknown } }).LLM
+      if (!llm || typeof llm.chat !== 'function') {
+        throw new Error('LLM.chat is unavailable in current runtime')
+      }
+      const result = await llm.chat({
         messages: [{ role: 'user', content: prompt }],
         model: 'claude-3-5-sonnet-20241022',
-      })
+      }) as { content?: string }
       const content = typeof result.content === 'string' ? result.content : ''
       const jsonCandidate = content.match(/\{[\s\S]*\}/)?.[0] || ''
       const parsed = safeJsonParse<PlaybookResponse>(jsonCandidate)

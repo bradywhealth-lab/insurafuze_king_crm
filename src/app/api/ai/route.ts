@@ -8,6 +8,43 @@ const aiRequestSchema = z.object({
   data: z.record(z.string(), z.unknown()).default({}),
 })
 
+type LlmMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+type LlmResult = {
+  content?: string
+}
+
+async function getLlmChat() {
+  const sdk: unknown = await import('z-ai-web-dev-sdk')
+  const llm = (sdk as { LLM?: { chat?: unknown } }).LLM
+  if (!llm || typeof llm.chat !== 'function') {
+    throw new Error('LLM.chat is unavailable in current runtime')
+  }
+  return llm.chat as (input: { messages: LlmMessage[]; model: string }) => Promise<LlmResult>
+}
+
+function extractJsonObject(content: string | undefined): Record<string, unknown> | null {
+  if (!content) return null
+  const jsonMatch = content.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) return null
+  try {
+    return JSON.parse(jsonMatch[0]) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
   try {
@@ -16,9 +53,7 @@ export async function POST(request: NextRequest) {
     const parsed = await parseJsonBody(request, aiRequestSchema)
     if (!parsed.success) return parsed.response
     const { action, data } = parsed.data
-    
-    // Dynamic import for server-side only
-    const { LLM } = await import('z-ai-web-dev-sdk')
+    const chat = await getLlmChat()
     
     switch (action) {
       case 'score-lead': {
@@ -47,16 +82,14 @@ Respond in JSON format:
   "tags": ["tag1", "tag2"]
 }`
 
-        const result = await LLM.chat({
+        const result = await chat({
           messages: [{ role: 'user', content: prompt }],
           model: 'claude-3-5-sonnet-20241022'
         })
         
-        // Parse the JSON response
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        const jsonObject = extractJsonObject(result.content)
+        if (jsonObject) {
+          return NextResponse.json(jsonObject)
         }
         
         return NextResponse.json({
@@ -69,7 +102,9 @@ Respond in JSON format:
       }
       
       case 'generate-content': {
-        const { topic, platform, tone } = data
+        const topic = asString(data.topic)
+        const platform = asString(data.platform)
+        const tone = asString(data.tone)
         const prompt = `Create a ${platform} post about: ${topic}
         
 Requirements:
@@ -87,16 +122,15 @@ Provide the response in JSON format:
   "bestTimeToPost": "<suggested time>"
 }`
 
-        const result = await LLM.chat({
+        const result = await chat({
           messages: [{ role: 'user', content: prompt }],
           model: 'claude-3-5-sonnet-20241022'
         })
         
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
+        const jsonObject = extractJsonObject(result.content)
+        if (jsonObject) {
           return NextResponse.json({
-            ...parsed,
+            ...jsonObject,
             aiGenerated: true
           })
         }
@@ -111,7 +145,9 @@ Provide the response in JSON format:
       }
 
       case 'generate-media': {
-        const { topic, platform, style = 'clean, premium, high-converting' } = data
+        const topic = asString(data.topic)
+        const platform = asString(data.platform)
+        const style = asString(data.style) || 'clean, premium, high-converting'
         const prompt = `Create a concise, production-ready image prompt for a ${platform} marketing creative.
 Topic: ${topic}
 Style: ${style}
@@ -123,16 +159,15 @@ Return JSON:
   "cta": "<call to action>"
 }`
 
-        const result = await LLM.chat({
+        const result = await chat({
           messages: [{ role: 'user', content: prompt }],
           model: 'claude-3-5-sonnet-20241022'
         })
 
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
+        const jsonObject = extractJsonObject(result.content)
+        if (jsonObject) {
           return NextResponse.json({
-            ...parsed,
+            ...jsonObject,
             aiGenerated: true
           })
         }
@@ -148,11 +183,11 @@ Return JSON:
       case 'generate-insights': {
         const prompt = `Analyze this CRM data and provide actionable insights:
         
-Total Leads: ${data.totalLeads}
-Pipeline Value: $${data.pipelineValue}
-Avg Lead Score: ${data.avgScore}
-Win Rate: ${data.winRate}%
-Recent Activities: ${data.recentActivities}
+Total Leads: ${asNumber(data.totalLeads)}
+Pipeline Value: $${asNumber(data.pipelineValue)}
+Avg Lead Score: ${asNumber(data.avgScore)}
+Win Rate: ${asNumber(data.winRate)}%
+Recent Activities: ${asString(data.recentActivities)}
 
 Provide 3-5 insights in JSON format:
 {
@@ -168,15 +203,14 @@ Provide 3-5 insights in JSON format:
   ]
 }`
 
-        const result = await LLM.chat({
+        const result = await chat({
           messages: [{ role: 'user', content: prompt }],
           model: 'claude-3-5-sonnet-20241022'
         })
         
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        const jsonObject = extractJsonObject(result.content)
+        if (jsonObject) {
+          return NextResponse.json(jsonObject)
         }
         
         // Fallback insights
@@ -203,14 +237,26 @@ Provide 3-5 insights in JSON format:
       }
       
       case 'chat': {
-        const { messages, context } = data
+        const context = data.context
+        const messages = Array.isArray(data.messages)
+          ? data.messages
+              .filter((m): m is Record<string, unknown> => !!m && typeof m === 'object')
+              .map((m) => ({
+                role:
+                  m.role === 'assistant' || m.role === 'system' || m.role === 'user'
+                    ? m.role
+                    : 'user',
+                content: typeof m.content === 'string' ? m.content : '',
+              }))
+              .filter((m) => m.content.length > 0)
+          : []
         
         const systemPrompt = `You are an AI assistant for EliteCRM, a sophisticated CRM system.
 You help users manage leads, analyze data, and optimize their sales process.
 Be concise, professional, and actionable in your responses.
 Context: ${JSON.stringify(context)}`
         
-        const result = await LLM.chat({
+        const result = await chat({
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages
@@ -219,7 +265,7 @@ Context: ${JSON.stringify(context)}`
         })
         
         return NextResponse.json({
-          message: result.content,
+          message: result.content || '',
           success: true
         })
       }

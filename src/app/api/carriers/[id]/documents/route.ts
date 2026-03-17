@@ -123,8 +123,14 @@ async function extractCarrierText(file: File, buffer: Buffer): Promise<string> {
 
   if (fileType.includes('pdf') || fileName.endsWith('.pdf')) {
     try {
-      const pdfParseModule = await import('pdf-parse')
-      const pdfParse = (pdfParseModule.default || pdfParseModule) as unknown as (input: Buffer) => Promise<{ text?: string }>
+      const pdfParseModule: unknown = await import('pdf-parse')
+      const pdfParse =
+        typeof pdfParseModule === 'function'
+          ? (pdfParseModule as (input: Buffer) => Promise<{ text?: string }>)
+          : typeof (pdfParseModule as { default?: unknown }).default === 'function'
+            ? ((pdfParseModule as { default: (input: Buffer) => Promise<{ text?: string }> }).default)
+            : null
+      if (!pdfParse) return ''
       const parsed = await pdfParse(buffer)
       return parsed.text || ''
     } catch (pdfError) {

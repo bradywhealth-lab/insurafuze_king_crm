@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let resolvedLeadId = leadId
+    let resolvedLeadId: string | undefined = leadId
     if (!resolvedLeadId && (email || phone)) {
       let lead = await db.lead.findFirst({
         where: {
@@ -85,13 +85,13 @@ export async function POST(request: NextRequest) {
           },
         })
       }
-      resolvedLeadId = lead?.id ?? null
+      resolvedLeadId = lead?.id
     }
 
     const activity = await db.activity.create({
       data: {
         organizationId: context.organizationId,
-        leadId: resolvedLeadId ?? undefined,
+        leadId: resolvedLeadId,
         type: 'meeting',
         title,
         description: description ?? null,

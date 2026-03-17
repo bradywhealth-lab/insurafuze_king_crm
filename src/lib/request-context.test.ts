@@ -25,17 +25,16 @@ describe('getOrgContext', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env.NODE_ENV = 'production'
-    delete process.env.INTERNAL_RUNNER_KEY
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.unstubAllEnvs()
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('INTERNAL_RUNNER_KEY', '')
   })
 
   afterAll(() => {
-    process.env.NODE_ENV = originalNodeEnv
-    if (originalRunnerKey === undefined) {
-      delete process.env.INTERNAL_RUNNER_KEY
-    } else {
-      process.env.INTERNAL_RUNNER_KEY = originalRunnerKey
-    }
+    vi.unstubAllEnvs()
+    if (originalNodeEnv !== undefined) vi.stubEnv('NODE_ENV', originalNodeEnv)
+    if (originalRunnerKey !== undefined) vi.stubEnv('INTERNAL_RUNNER_KEY', originalRunnerKey)
   })
 
   it('returns session-scoped organization for a valid session token', async () => {
@@ -69,7 +68,7 @@ describe('getOrgContext', () => {
   })
 
   it('allows x-organization-id override only for trusted internal runner requests', async () => {
-    process.env.INTERNAL_RUNNER_KEY = 'runner-secret'
+    vi.stubEnv('INTERNAL_RUNNER_KEY', 'runner-secret')
     mockDb.organization.findUnique.mockResolvedValueOnce({ id: 'org_internal' })
 
     const request = new NextRequest('http://localhost/api/test', {
@@ -86,7 +85,7 @@ describe('getOrgContext', () => {
   })
 
   it('rejects x-organization-id override when internal key is invalid', async () => {
-    process.env.INTERNAL_RUNNER_KEY = 'runner-secret'
+    vi.stubEnv('INTERNAL_RUNNER_KEY', 'runner-secret')
 
     const request = new NextRequest('http://localhost/api/test', {
       headers: {
