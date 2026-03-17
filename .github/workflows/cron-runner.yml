@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Operational Cron Runner
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Every 15 minutes, this workflow calls `scripts/run-internal-runners.mjs`
+#   which hits two internal API endpoints on your production app:
+#     1. POST /api/sequences/run   → processes any sequence steps that are due
+#        (automated email/SMS follow-ups for leads in active sequences)
+#     2. POST /api/content/publish → publishes any scheduled content posts
+#        that have passed their scheduled_at time
+#
+#   On failure, GitHub sends you an email notification automatically.
+#   The workflow also posts a failure summary as a GitHub check annotation.
+#
+# WHY IT MATTERS (solo dev):
+#   Without this, your sequences and content scheduler NEVER fire — they require
+#   an external trigger. This replaces the need for a separate cron server,
+#   Vercel cron, or any paid scheduler. It runs entirely within your free
+#   GitHub Actions minutes.
+#
+# COST ESTIMATE:
+#   ~30 seconds per run × 4 runs/hour × 24 hours × 30 days = ~1,440 min/month
+#   GitHub free tier: 2,000 min/month for private repos (public: unlimited)
+#   You have ample headroom.
+#
+# REQUIRED SECRETS (GitHub → Settings → Secrets → Actions):
+#   APP_BASE_URL          — e.g., https://your-app.example.com
+#   INTERNAL_RUNNER_KEY   — matches INTERNAL_RUNNER_KEY in your .env
+#   RUNNER_ORGANIZATION_ID — the organizationId to run automations for
+#
+# NOTE: GitHub's cron scheduler has ~1-5 minute jitter. This is acceptable
+# for sequence processing (steps are checked by their due timestamp, not by
+# how often this fires).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Operational Cron Runner
+
+on:
+  schedule:
+    # Every 15 minutes
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — log what would run without actually calling endpoints"
+        type: boolean
+        default: false
+
+jobs:
+  run-sequences:
+    name: Run Sequences & Content
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate required secrets
+        run: |
+          if [[ -z "$APP_BASE_URL" ]]; then
+            echo "⚠️  APP_BASE_URL secret is not set — skipping runner"
+            echo "   To enable: GitHub → Settings → Secrets → Actions → New secret"
+            echo "   Name: APP_BASE_URL  Value: https://your-app.example.com"
+            exit 0
+          fi
+          echo "✅ APP_BASE_URL is configured: $APP_BASE_URL"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+
+      - name: Run internal runners
+        if: ${{ inputs.dry_run != true && secrets.APP_BASE_URL != '' }}
+        run: node scripts/run-internal-runners.mjs
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          INTERNAL_RUNNER_KEY: ${{ secrets.INTERNAL_RUNNER_KEY }}
+          RUNNER_ORGANIZATION_ID: ${{ secrets.RUNNER_ORGANIZATION_ID }}
+        timeout-minutes: 4
+
+      - name: Dry run notice
+        if: ${{ inputs.dry_run == true }}
+        run: |
+          echo "🔍 DRY RUN — would call:"
+          echo "  POST $APP_BASE_URL/api/sequences/run"
+          echo "  POST $APP_BASE_URL/api/content/publish"
+          echo "  Headers: X-Internal-Runner-Key, X-Organization-Id"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}

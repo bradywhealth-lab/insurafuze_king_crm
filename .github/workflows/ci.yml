@@ -1,0 +1,171 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Runs on every push to any branch and on every pull request.
+#   Three jobs run in parallel after a shared setup step:
+#     1. lint    — ESLint 9 — catches style and code-quality issues immediately
+#     2. test    — Vitest unit tests — verifies business logic without a live DB
+#     3. build   — Next.js production build — ensures the app compiles cleanly
+#
+# WHY IT MATTERS (solo dev):
+#   You get immediate feedback within ~2 minutes of every push.
+#   A broken build or failing test will appear as a red "×" on the commit
+#   before it ever touches main. No surprise breakages in production.
+#
+# SECRETS REQUIRED: none (SQLite fallback is used; no live DB needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Shared setup ────────────────────────────────────────────────────────────
+  setup:
+    name: Setup & Cache
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache node_modules
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+  # ── Job 1: Lint ─────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+
+      - name: Install (fallback if cache miss)
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Run ESLint
+        run: bun run lint
+
+  # ── Job 2: Test ─────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests (Vitest)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+
+      - name: Install (fallback if cache miss)
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.sha }}
+          path: |
+            coverage/
+            test-results/
+          retention-days: 7
+
+  # ── Job 3: Build ────────────────────────────────────────────────────────────
+  build:
+    name: Production Build
+    runs-on: ubuntu-latest
+    needs: setup
+    env:
+      # SQLite fallback — no live DB required at build time
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-placeholder-secret-not-real
+      NEXTAUTH_URL: http://localhost:3000
+      INTERNAL_RUNNER_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+
+      - name: Install (fallback if cache miss)
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Build Next.js
+        run: next build
+
+      - name: Verify standalone output
+        run: test -f .next/standalone/server.js && echo "✅ standalone output present"
+
+  # ── Summary gate ────────────────────────────────────────────────────────────
+  # This single job becomes the required status check in branch protection.
+  # It only passes if lint + test + build all pass — saves configuring 3 checks.
+  ci-pass:
+    name: CI Pass
+    runs-on: ubuntu-latest
+    needs: [lint, test, build]
+    if: always()
+    steps:
+      - name: Evaluate results
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ||
+                "${{ needs.test.result }}" != "success" ||
+                "${{ needs.build.result }}" != "success" ]]; then
+            echo "❌ One or more CI jobs failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed"

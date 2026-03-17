@@ -1,0 +1,128 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependabot — Automated Dependency Updates
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   GitHub's Dependabot automatically opens PRs to update outdated or
+#   vulnerable dependencies. Configuration here:
+#     • Weekly checks on Mondays (not daily — avoids PR noise)
+#     • Groups related packages together (e.g., all @radix-ui/* in one PR)
+#     • Limits to 10 open Dependabot PRs at once
+#     • Ignores major version bumps for large breaking-change-risk packages
+#       (e.g., Next.js major, Prisma major) — you handle those manually
+#
+# WHY IT MATTERS (solo dev):
+#   CVEs in npm packages are discovered constantly. Without Dependabot, you'd
+#   need to manually run `bun update` and review changelogs. Instead, you get
+#   a PR with the diff and CI running automatically — review and merge in
+#   60 seconds. Critical security updates (GHSA advisories) are also sent as
+#   immediate PRs regardless of the schedule.
+#
+# REVIEW PROCESS:
+#   1. Dependabot opens a PR
+#   2. CI runs automatically on the PR
+#   3. If CI passes, review the changelog in the PR description
+#   4. Merge with one click
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: 2
+
+updates:
+  # ── npm / bun packages ──────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "America/New_York"
+
+    # Open at most 10 PRs at once — avoids overwhelming your review queue
+    open-pull-requests-limit: 10
+
+    # Group related packages into single PRs to reduce PR noise
+    groups:
+      radix-ui:
+        patterns:
+          - "@radix-ui/*"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      ai-sdk:
+        patterns:
+          - "openai"
+          - "@anthropic-ai/*"
+          - "z-ai-web-dev-sdk"
+      next-ecosystem:
+        patterns:
+          - "next"
+          - "next-auth"
+          - "next-intl"
+          - "next-themes"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      testing:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      linting:
+        patterns:
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "eslint-config-next"
+      supabase:
+        patterns:
+          - "@supabase/*"
+      dnd-kit:
+        patterns:
+          - "@dnd-kit/*"
+
+    # Ignore major version bumps for packages with high breaking-change risk
+    # You'll handle these manually with proper testing
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: scope
+
+    labels:
+      - "area: deps"
+      - "automated"
+
+  # ── GitHub Actions ──────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "America/New_York"
+
+    open-pull-requests-limit: 5
+
+    commit-message:
+      prefix: "chore(ci)"
+
+    labels:
+      - "area: ci"
+      - "automated"

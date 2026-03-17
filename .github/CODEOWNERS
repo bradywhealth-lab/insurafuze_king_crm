@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CODEOWNERS
+# ─────────────────────────────────────────────────────────────────────────────
+# Defines who is automatically requested as a reviewer for PRs that touch
+# specific files/directories. With a single owner, every PR review request
+# goes to you — useful if you add collaborators in the future.
+#
+# GitHub docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Default owner for everything
+* @cursor-ai
+
+# Critical infrastructure — extra attention
+prisma/schema.prisma @cursor-ai
+prisma/rls.sql @cursor-ai
+prisma/init.sql @cursor-ai
+src/lib/db.ts @cursor-ai
+src/lib/request-context.ts @cursor-ai
+src/lib/internal-runner.ts @cursor-ai
+
+# CI/CD configuration
+.github/ @cursor-ai
+
+# Environment and secrets config
+.env.example @cursor-ai
+prisma.config.ts @cursor-ai
+next.config.ts @cursor-ai

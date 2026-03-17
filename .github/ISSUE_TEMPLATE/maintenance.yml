@@ -1,0 +1,57 @@
+name: Maintenance Task
+description: Infrastructure, dependency update, or operational maintenance
+title: "chore: "
+labels: ["maintenance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for recurring operational tasks: DB maintenance, dependency updates,
+        infrastructure changes, security patches, etc.
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Task description
+      description: What needs to be done and why?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Dependency update
+        - Database maintenance (vacuum, indexes, migrations)
+        - Security patch
+        - Infrastructure / hosting
+        - Backup / disaster recovery
+        - Performance optimization
+        - Monitoring / alerting
+        - Cost optimization
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      options:
+        - Immediate (security or data risk)
+        - This week
+        - This month
+        - Someday
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: completion
+    attributes:
+      label: Completion checklist
+      options:
+        - label: Task completed
+        - label: Verified in production
+        - label: Documented (if needed)

@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Repository Label Setup
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Creates all the GitHub labels used by other workflows (auto-labeler,
+#   stale management, issue templates, Dependabot). Run this once when
+#   setting up a new repo, or manually via workflow_dispatch.
+#
+# WHY IT MATTERS:
+#   Labels must exist before they can be applied. This ensures all workflows
+#   that reference labels (stale.yml, auto-label.yml, dependabot.yml,
+#   issue templates) work correctly from day one.
+#
+# HOW TO RUN: GitHub → Actions → "Setup Labels" → Run workflow
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Setup Labels
+
+on:
+  workflow_dispatch:
+  # Also run when this file is first pushed to main
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/setup-labels.yml"
+
+permissions:
+  issues: write
+
+jobs:
+  create-labels:
+    name: Create Repository Labels
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              // ── Area labels (auto-labeler) ────────────────────────────────
+              { name: "area: database",   color: "0052cc", description: "Database schema, migrations, Prisma" },
+              { name: "area: api",        color: "0075ca", description: "API routes and backend logic" },
+              { name: "area: ui",         color: "e4e669", description: "Frontend components and styling" },
+              { name: "area: ai",         color: "d93f0b", description: "AI features, scoring, LLM calls" },
+              { name: "area: auth",       color: "0e8a16", description: "Authentication and multi-tenancy" },
+              { name: "area: ci",         color: "bfd4f2", description: "GitHub Actions and CI/CD" },
+              { name: "area: scripts",    color: "d4c5f9", description: "Operational scripts" },
+              { name: "area: tests",      color: "c2e0c6", description: "Tests and test infrastructure" },
+              { name: "area: deps",       color: "fef2c0", description: "Dependency updates" },
+              { name: "area: config",     color: "e6e6e6", description: "Configuration files" },
+              { name: "area: carriers",   color: "f9d0c4", description: "Carrier data and documents" },
+              { name: "area: sequences",  color: "c5def5", description: "Automation sequences" },
+
+              // ── Type labels (issue templates) ─────────────────────────────
+              { name: "bug",              color: "d73a4a", description: "Something isn't working" },
+              { name: "enhancement",      color: "a2eeef", description: "New feature or request" },
+              { name: "maintenance",      color: "e4e669", description: "Infrastructure and operational tasks" },
+              { name: "data-update",      color: "ffa500", description: "Data or content updates" },
+              { name: "security",         color: "e11d48", description: "Security issue or patch" },
+              { name: "performance",      color: "0891b2", description: "Performance improvement" },
+              { name: "documentation",    color: "0075ca", description: "Documentation updates" },
+
+              // ── Status labels ──────────────────────────────────────────────
+              { name: "stale",            color: "cccccc", description: "No recent activity" },
+              { name: "needs-triage",     color: "ee0701", description: "Needs initial review" },
+              { name: "in-progress",      color: "0052cc", description: "Being worked on" },
+              { name: "blocked",          color: "b60205", description: "Blocked by external dependency" },
+              { name: "pinned",           color: "0075ca", description: "Never mark as stale" },
+              { name: "do-not-close",     color: "0075ca", description: "Never auto-close" },
+              { name: "roadmap",          color: "6f42c1", description: "On the product roadmap" },
+
+              // ── Automation labels ──────────────────────────────────────────
+              { name: "automated",        color: "bfd4f2", description: "Created by automated tooling" },
+            ];
+
+            for (const label of labels) {
+              try {
+                // Try to create
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description,
+                });
+                console.log(`✅ Created: ${label.name}`);
+              } catch (e) {
+                if (e.status === 422) {
+                  // Already exists — update it
+                  try {
+                    await github.rest.issues.updateLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: label.name,
+                      color: label.color,
+                      description: label.description,
+                    });
+                    console.log(`🔄 Updated: ${label.name}`);
+                  } catch (updateErr) {
+                    console.log(`⚠️  Could not update ${label.name}: ${updateErr.message}`);
+                  }
+                } else {
+                  console.log(`❌ Failed to create ${label.name}: ${e.message}`);
+                }
+              }
+            }
+
+            console.log(`\n✅ Label setup complete — ${labels.length} labels processed`);
