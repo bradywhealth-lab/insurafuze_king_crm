@@ -170,7 +170,23 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get('session-token')?.value
-    if (!token) return NextResponse.json({ user: null })
+    if (!token) {
+      if (process.env.NODE_ENV !== 'production' && process.env.DEV_DEFAULT_ORG_ID) {
+        const org = await db.organization.findUnique({
+          where: { id: process.env.DEV_DEFAULT_ORG_ID },
+        })
+        if (org) {
+          const devUser = await db.user.findFirst({ where: { organizationId: org.id } })
+          return NextResponse.json({
+            user: devUser
+              ? { id: devUser.id, email: devUser.email, name: devUser.name, role: devUser.role, organizationId: devUser.organizationId }
+              : { id: 'dev', email: 'dev@local', name: 'Dev User', role: 'owner', organizationId: org.id },
+            organization: { id: org.id, name: org.name, slug: org.slug },
+          })
+        }
+      }
+      return NextResponse.json({ user: null })
+    }
 
     const session = await db.userSession.findFirst({
       where: { token, isActive: true, expiresAt: { gt: new Date() } },

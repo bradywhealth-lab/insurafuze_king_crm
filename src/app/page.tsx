@@ -3795,11 +3795,18 @@ export default function EliteCRM() {
         if (data.user) {
           setCurrentUser(data.user)
           setCurrentOrg(data.organization || null)
-        } else if (process.env.NODE_ENV === 'production' || !process.env.NEXT_PUBLIC_SKIP_AUTH) {
-          router.push('/auth')
-          return
+          setAuthChecked(true)
+        } else {
+          return fetch('/api/ready')
+            .then((r) => r.json())
+            .then((readyData) => {
+              if (readyData.ready && readyData.database === 'ok') {
+                router.push('/auth')
+              } else {
+                setAuthChecked(true)
+              }
+            })
         }
-        setAuthChecked(true)
       })
       .catch(() => setAuthChecked(true))
   }, [router])
