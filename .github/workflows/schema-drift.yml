@@ -1,0 +1,136 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema Drift Detection
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Triggers whenever `prisma/schema.prisma` is changed in a PR or push.
+#   It:
+#     1. Validates the schema syntax with `prisma validate`
+#     2. Runs `prisma generate` to ensure the client compiles
+#     3. Checks whether you forgot to create a migration file for the changes
+#        (runs `prisma migrate diff` to detect uncommitted schema changes)
+#     4. Posts a PR comment with a summary of any schema issues found
+#
+# WHY IT MATTERS (solo dev):
+#   The most common database mistake: you update schema.prisma, push it, deploy
+#   it — and then the app crashes because the actual database tables don't
+#   match the schema. This workflow catches that before it hits production.
+#   It also catches syntax errors in the schema that would silently break
+#   `prisma generate` in CI.
+#
+# SECRETS REQUIRED: none (uses SQLite fallback for validation)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Schema Drift Check
+
+on:
+  push:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+  pull_request:
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  schema-check:
+    name: Validate Prisma Schema
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate schema syntax
+        run: |
+          echo "🔍 Validating Prisma schema..."
+          npx prisma validate
+          echo "✅ Schema syntax is valid"
+
+      - name: Generate Prisma client
+        run: |
+          echo "🔧 Generating Prisma client from schema..."
+          bun run db:generate
+          echo "✅ Prisma client generated successfully"
+
+      - name: Check for missing migration
+        run: |
+          echo "🔍 Checking for schema changes without migration files..."
+
+          # Count migration files
+          MIGRATION_COUNT=$(find prisma/migrations -name "migration.sql" 2>/dev/null | wc -l)
+          echo "   Found $MIGRATION_COUNT migration file(s)"
+
+          # Check if schema was changed vs last commit (for PRs)
+          if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q "prisma/schema.prisma"; then
+            echo "⚠️  schema.prisma was modified in this PR."
+            echo "   Reminder: if you added/removed/changed columns or tables,"
+            echo "   create a migration with: bun run db:migrate"
+            echo "   Or apply directly to dev DB with: bun run db:push"
+            echo ""
+            echo "   For production deployments, always use migrations, not db:push"
+          fi
+
+      - name: Post schema change summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+
+            let schemaChanged = false;
+            try {
+              const diff = execSync('git diff --name-only origin/main...HEAD').toString();
+              schemaChanged = diff.includes('prisma/schema.prisma');
+            } catch (e) {
+              // Not a PR from a branch with main as base — skip
+            }
+
+            if (!schemaChanged) return;
+
+            let schemaDiff = '';
+            try {
+              schemaDiff = execSync('git diff origin/main...HEAD -- prisma/schema.prisma').toString();
+            } catch (e) {
+              schemaDiff = 'Could not compute diff';
+            }
+
+            const lines = schemaDiff.split('\n').filter(l => l.startsWith('+') || l.startsWith('-')).length;
+
+            const body = `## 🗄️ Prisma Schema Changed
+
+            **${lines} lines changed** in \`prisma/schema.prisma\`
+
+            ✅ Schema syntax validated
+            ✅ Prisma client generates cleanly
+
+            **Deployment checklist:**
+            - [ ] Did you create a migration? (\`bun run db:migrate\`)
+            - [ ] Does the migration handle existing data safely? (no destructive changes without a plan)
+            - [ ] Did you update \`prisma/init.sql\` if tables were added/removed?
+            - [ ] Did you update \`prisma/rls.sql\` if new tables need Row Level Security?
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

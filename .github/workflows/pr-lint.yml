@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PR Title Lint & Quality Check
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Validates that PR titles follow Conventional Commits format:
+#     <type>(<scope>): <description>
+#
+#   Valid types: feat, fix, chore, docs, style, refactor, test, perf, ci, build
+#   Examples:
+#     ✅ feat(leads): add AI score breakdown tooltip
+#     ✅ fix(api): handle null organizationId in carrier route
+#     ✅ chore(deps): update tanstack/react-query to v5.x
+#     ❌ "fixed some stuff"
+#     ❌ "WIP"
+#     ❌ "updates"
+#
+#   Also checks:
+#     • PR has a description (body is not empty)
+#     • PR is not a draft when targeting main (reminds you to mark it ready)
+#
+# WHY IT MATTERS (solo dev):
+#   Conventional commit titles enable automatic changelog generation (see the
+#   release.yml workflow). They also make your git log actually readable when
+#   you're debugging "what did I change last Tuesday?"
+#
+# SECRETS REQUIRED: none
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: PR Lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-title:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR title format
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const body = context.payload.pull_request.body;
+            const isDraft = context.payload.pull_request.draft;
+            const targetBranch = context.payload.pull_request.base.ref;
+
+            const CONVENTIONAL_COMMIT_REGEX = /^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert)(\(.+\))?: .{3,}/;
+            const MIN_BODY_LENGTH = 20;
+
+            const errors = [];
+            const warnings = [];
+
+            // Check title format
+            if (!CONVENTIONAL_COMMIT_REGEX.test(title)) {
+              errors.push(
+                `❌ **PR title doesn't follow Conventional Commits format**\n` +
+                `   Got: \`${title}\`\n` +
+                `   Expected: \`<type>(<scope>): <description>\`\n` +
+                `   Valid types: \`feat\`, \`fix\`, \`chore\`, \`docs\`, \`style\`, \`refactor\`, \`test\`, \`perf\`, \`ci\`, \`build\`\n` +
+                `   Example: \`feat(leads): add AI score breakdown\``
+              );
+            }
+
+            // Check body exists
+            if (!body || body.trim().length < MIN_BODY_LENGTH) {
+              warnings.push(
+                `⚠️  **PR description is missing or very short** (${body ? body.trim().length : 0} chars, min: ${MIN_BODY_LENGTH})\n` +
+                `   Adding context helps future-you understand what changed and why.`
+              );
+            }
+
+            // Check draft status for main-targeting PRs
+            if (targetBranch === 'main' && isDraft) {
+              warnings.push(
+                `⚠️  **This PR targets \`main\` but is still a draft.**\n` +
+                `   Mark it "Ready for review" when it's done.`
+              );
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(errors.join('\n\n'));
+            }
+
+            if (warnings.length > 0) {
+              warnings.forEach(w => core.warning(w));
+            }
+
+            if (errors.length === 0) {
+              console.log(`✅ PR title is valid: "${title}"`);
+            }

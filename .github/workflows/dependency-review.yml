@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependency Review
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   When a PR changes package.json / bun.lock, this workflow scans every new
+#   or updated dependency against the GitHub Advisory Database and the OSV
+#   database. It will:
+#     • FAIL the PR if any newly added package has a HIGH or CRITICAL CVE
+#     • WARN if a package has a license that conflicts with commercial use
+#     • Comment on the PR with a summary of any findings
+#
+# WHY IT MATTERS (solo dev):
+#   npm install can silently pull in packages with known vulnerabilities.
+#   This acts as an automated security review for every `bun add` you do.
+#   You'll know immediately if a new package is dangerous before it ships.
+#
+# SECRETS REQUIRED: none (uses built-in GITHUB_TOKEN)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Dependency Review
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "package-lock.json"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: always
+          warn-only: false

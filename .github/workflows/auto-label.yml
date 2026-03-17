@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Auto-Labeler
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Whenever a PR is opened or updated, inspects all changed files and applies
+#   the appropriate area labels (e.g., "area: database", "area: ai", "area: ui").
+#   Label mappings are defined in `.github/labeler.yml`.
+#
+# WHY IT MATTERS (solo dev):
+#   At a glance you can see what part of the codebase a PR touches without
+#   reading the diff. Useful when you return to a PR after a break, and for
+#   filtering your PR list by area (e.g., show me all "area: database" PRs).
+#
+# REQUIRED SETUP:
+#   Create the following labels in your GitHub repo (Settings → Labels):
+#     area: database, area: api, area: ui, area: ai, area: auth,
+#     area: ci, area: scripts, area: tests, area: deps, area: config,
+#     area: carriers, area: sequences
+#
+# SECRETS REQUIRED: none (uses built-in GITHUB_TOKEN)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Auto Label
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  labeler:
+    name: Apply Labels
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+          sync-labels: false

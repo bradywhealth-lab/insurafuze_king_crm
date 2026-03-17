@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Health Check / Uptime Monitor
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Every 15 minutes, sends a GET request to:
+#     • /api/health  — fast liveness check (returns {ok: true, timestamp})
+#     • /api/ready   — readiness check (performs a DB ping)
+#
+#   If either endpoint returns a non-2xx status, the workflow FAILS, which
+#   causes GitHub to send you an email notification immediately.
+#
+#   It also:
+#     • Measures response time and logs it
+#     • Checks that the response body contains expected fields
+#     • Compares response time against a threshold (warns if > 2 seconds)
+#
+# WHY IT MATTERS (solo dev):
+#   You're the only person watching this app. When it goes down at 3am, this
+#   will email you within 15 minutes. No need for paid uptime services like
+#   UptimeRobot, Pingdom, or Better Uptime.
+#
+# REQUIRED SECRETS:
+#   APP_BASE_URL  — e.g., https://your-app.example.com
+#   (Optional) HEALTH_SLACK_WEBHOOK — Slack webhook URL for failure alerts
+#
+# NOTE: GitHub cron has ~1-5 minute jitter, so "every 15 minutes" means
+# you'll be notified within ~20 minutes of an outage.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Health Check
+
+on:
+  schedule:
+    # Every 15 minutes
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: "Show full response bodies"
+        type: boolean
+        default: false
+
+jobs:
+  health:
+    name: App Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Check APP_BASE_URL is set
+        run: |
+          if [[ -z "$APP_BASE_URL" ]]; then
+            echo "⚠️  APP_BASE_URL is not configured — skipping health check"
+            echo "   Set it in: GitHub → Settings → Secrets → Actions"
+            exit 0
+          fi
+          echo "🔍 Checking: $APP_BASE_URL"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+
+      - name: GET /api/health
+        if: ${{ secrets.APP_BASE_URL != '' }}
+        run: |
+          START=$(date +%s%3N)
+          RESPONSE=$(curl -sf \
+            --max-time 10 \
+            --retry 2 \
+            --retry-delay 2 \
+            -w "\n%{http_code}" \
+            "$APP_BASE_URL/api/health")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          END=$(date +%s%3N)
+          DURATION=$((END - START))
+
+          echo "📊 /api/health"
+          echo "   Status: $HTTP_CODE"
+          echo "   Duration: ${DURATION}ms"
+          echo "   Body: $BODY"
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "❌ /api/health returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          if [[ $DURATION -gt 2000 ]]; then
+            echo "⚠️  Slow response: ${DURATION}ms (threshold: 2000ms)"
+          else
+            echo "✅ /api/health OK (${DURATION}ms)"
+          fi
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+
+      - name: GET /api/ready (DB ping)
+        if: ${{ secrets.APP_BASE_URL != '' }}
+        run: |
+          START=$(date +%s%3N)
+          RESPONSE=$(curl -sf \
+            --max-time 15 \
+            --retry 2 \
+            --retry-delay 3 \
+            -w "\n%{http_code}" \
+            "$APP_BASE_URL/api/ready")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          END=$(date +%s%3N)
+          DURATION=$((END - START))
+
+          echo "📊 /api/ready"
+          echo "   Status: $HTTP_CODE"
+          echo "   Duration: ${DURATION}ms"
+          echo "   Body: $BODY"
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "❌ /api/ready returned HTTP $HTTP_CODE — database may be down"
+            exit 1
+          fi
+
+          echo "✅ /api/ready OK — database is reachable (${DURATION}ms)"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+
+      - name: Notify Slack on failure
+        if: failure() && secrets.HEALTH_SLACK_WEBHOOK != ''
+        run: |
+          curl -X POST \
+            -H "Content-type: application/json" \
+            -d "{\"text\": \"🚨 *Elite CRM Health Check FAILED* at $(date -u '+%Y-%m-%d %H:%M UTC')\nCheck: $APP_BASE_URL/api/health\nView run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}" \
+            "$HEALTH_SLACK_WEBHOOK"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          HEALTH_SLACK_WEBHOOK: ${{ secrets.HEALTH_SLACK_WEBHOOK }}

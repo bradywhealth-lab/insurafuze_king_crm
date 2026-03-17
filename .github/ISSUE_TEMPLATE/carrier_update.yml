@@ -1,0 +1,74 @@
+name: Carrier Information Update
+description: Request an update to carrier data, documents, or playbooks
+title: "chore(carriers): update "
+labels: ["area: carriers", "data-update"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to track carrier data updates, new document uploads,
+        or carrier playbook changes.
+
+  - type: input
+    id: carrier_name
+    attributes:
+      label: Carrier name
+      placeholder: e.g., Nationwide, Progressive, State Farm
+    validations:
+      required: true
+
+  - type: dropdown
+    id: update_type
+    attributes:
+      label: Type of update
+      options:
+        - New carrier to add
+        - Update carrier contact info
+        - Upload new document (rate sheet, guide, form)
+        - Update existing document
+        - Remove outdated document
+        - Update carrier playbook / knowledge base
+        - Commission rate change
+        - Product availability change
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What specifically needs to change?
+      placeholder: |
+        Nationwide updated their commercial auto rates effective 2026-01-01.
+        New rate sheet is attached. Old rate sheet (uploaded Nov 2025) should
+        be archived.
+    validations:
+      required: true
+
+  - type: textarea
+    id: documents
+    attributes:
+      label: Documents to upload
+      description: List any documents that need to be uploaded (name and source).
+    validations:
+      required: false
+
+  - type: input
+    id: effective_date
+    attributes:
+      label: Effective date (if applicable)
+      placeholder: "2026-01-01"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Update checklist
+      options:
+        - label: Upload new document(s) via Carriers page
+        - label: Archive / delete outdated documents
+        - label: Update carrier record fields (contact, website, notes)
+        - label: Re-process document chunks for AI playbook (re-upload triggers re-chunking)
+        - label: Test carrier playbook with a sample question

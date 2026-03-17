@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Security — CodeQL Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   GitHub's CodeQL engine statically analyzes all TypeScript/JavaScript source
+#   files for known vulnerability patterns:
+#     • SQL injection, XSS, path traversal, prototype pollution
+#     • Insecure use of crypto, hardcoded credentials, unsafe regex
+#     • SSRF patterns (relevant because Elite CRM has a /api/scrape endpoint)
+#
+# RUNS:
+#   • Every push to `main`
+#   • Every PR (so you catch issues before they land)
+#   • Weekly on Monday at 08:00 UTC (catches new CVE signatures on old code)
+#
+# WHY IT MATTERS (solo dev):
+#   You don't have a security team. CodeQL is your free, automated security
+#   engineer. Results appear in GitHub → Security → Code scanning alerts.
+#   Critical alerts also block PRs if you enable required checks.
+#
+# SECRETS REQUIRED: none (uses built-in GITHUB_TOKEN)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Security (CodeQL)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+          config: |
+            paths:
+              - src
+              - scripts
+            paths-ignore:
+              - node_modules
+              - .next
+              - examples
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma types
+        run: bun run db:generate
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+          upload: true

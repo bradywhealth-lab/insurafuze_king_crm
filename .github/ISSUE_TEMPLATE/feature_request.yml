@@ -1,0 +1,81 @@
+name: Feature Request
+description: Suggest a new feature or improvement for Elite CRM
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea to make Elite CRM better? Fill this out and it'll go into the backlog.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: |
+        What problem are you solving? What is currently painful or missing?
+        "I want X" is less useful than "When I do Y, I can't Z because..."
+      placeholder: |
+        As a broker, I often need to track which carriers are approved for which
+        clients. Currently I have to manually note this in the lead description,
+        which is error-prone and unsearchable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to exist? Be specific.
+      placeholder: |
+        Add a "Approved Carriers" multi-select field to the Lead detail view,
+        linked to the Carriers table. Allow filtering leads by approved carrier.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Are there other ways to solve this? Why is your proposal better?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: App area
+      options:
+        - Leads / Contacts
+        - Pipeline
+        - AI Features
+        - Sequences / Automation
+        - Carriers & Documents
+        - Content / Social
+        - Dashboard / Stats
+        - Integrations
+        - Performance
+        - UX / Design
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority (your assessment)
+      options:
+        - Critical — blocking my workflow
+        - High — would save significant time
+        - Medium — nice to have
+        - Low — someday/maybe
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Mockup / sketch (optional)
+      description: Attach any wireframes, sketches, or screenshots of similar features.
+    validations:
+      required: false

@@ -16,7 +16,10 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "tsx prisma/seed.ts",
-    "runner:tick": "node scripts/run-internal-runners.mjs"
+    "runner:tick": "node scripts/run-internal-runners.mjs",
+    "check:env": "node scripts/check-env.mjs",
+    "check:db": "node scripts/db-health-check.mjs",
+    "release:create": "node scripts/create-release.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Database Backup Reminder
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   Runs every Sunday at 06:00 UTC. Creates a GitHub Issue reminding you to
+#   verify your database backup is working. Also runs a lightweight DB
+#   connectivity + row count check against your production app's /api/stats
+#   endpoint to surface any data anomalies.
+#
+# WHY IT MATTERS (solo dev):
+#   Database backups are the #1 thing solo developers neglect until disaster
+#   strikes. This is a weekly nudge to verify backups are running and
+#   check that your data looks healthy. The created issue stays in your
+#   backlog until you close it — a paper trail that you did the check.
+#
+# REQUIRED SECRETS:
+#   APP_BASE_URL — your production app URL
+#
+# TO DISABLE: Remove the schedule trigger or add `if: false` to the job.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Weekly DB Backup Check
+
+on:
+  schedule:
+    # Every Sunday at 06:00 UTC
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  backup-check:
+    name: Weekly Backup & Health Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check app stats endpoint
+        id: stats
+        run: |
+          if [[ -z "$APP_BASE_URL" ]]; then
+            echo "stats_available=false" >> $GITHUB_OUTPUT
+            echo "⚠️  APP_BASE_URL not set — skipping live stats check"
+            exit 0
+          fi
+
+          RESPONSE=$(curl -sf --max-time 10 "$APP_BASE_URL/api/stats" 2>/dev/null || echo "ERROR")
+
+          if [[ "$RESPONSE" == "ERROR" ]]; then
+            echo "stats_available=false" >> $GITHUB_OUTPUT
+            echo "❌ Could not reach /api/stats"
+          else
+            echo "stats_available=true" >> $GITHUB_OUTPUT
+            echo "stats_body=$RESPONSE" >> $GITHUB_OUTPUT
+            echo "✅ Stats endpoint reachable"
+            echo "Response: $RESPONSE"
+          fi
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+
+      - name: Create backup reminder issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+            const statsAvailable = '${{ steps.stats.outputs.stats_available }}' === 'true';
+            const statsBody = '${{ steps.stats.outputs.stats_body }}' || 'N/A';
+            const appUrl = '${{ secrets.APP_BASE_URL }}' || '(APP_BASE_URL not configured)';
+
+            let statsSection = statsAvailable
+              ? `### 📊 Live Stats Snapshot\n\`\`\`json\n${statsBody}\n\`\`\``
+              : `### ⚠️ Stats Unavailable\nCould not reach \`${appUrl}/api/stats\`. Verify the app is running.`;
+
+            const body = `## 🗄️ Weekly Database Backup Check — ${today}
+
+            This is your automated weekly reminder to verify your database backup is running correctly.
+
+            ${statsSection}
+
+            ### Backup Checklist
+
+            - [ ] Verify your PostgreSQL backup ran successfully this week
+            - [ ] Confirm backup files exist and are not corrupted (try a test restore)
+            - [ ] Check backup retention policy (recommend: daily for 7 days, weekly for 4 weeks)
+            - [ ] Verify backup storage location is accessible and has sufficient space
+            - [ ] Review any database error logs from the past week
+            - [ ] Check for long-running queries or lock contention in pg_stat_activity
+
+            ### Recommended Backup Command
+            \`\`\`bash
+            pg_dump -U elite_user elite_crm | gzip > backup_${today}.sql.gz
+            \`\`\`
+
+            ### Resources
+            - [PostgreSQL Backup Docs](https://www.postgresql.org/docs/current/backup.html)
+            - Check \`/api/ready\` for DB connectivity: \`${appUrl}/api/ready\`
+
+            ---
+            *Close this issue once you've completed the checklist. Auto-created by the weekly backup check workflow.*`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🗄️ Weekly DB Backup Check — ${today}`,
+              body,
+              labels: ['maintenance', 'database']
+            });
+
+            console.log(`✅ Created backup check issue for ${today}`);

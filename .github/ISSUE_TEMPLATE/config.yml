@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Elite CRM Runbook
+    url: https://github.com/$REPO/blob/main/LIVE_TODAY_RUNBOOK.md
+    about: Operations runbook for Elite CRM
+  - name: Roadmap
+    url: https://github.com/$REPO/blob/main/ELITE_ROADMAP.md
+    about: Product roadmap and planned features

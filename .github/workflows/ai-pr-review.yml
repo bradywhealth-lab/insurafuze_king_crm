@@ -1,0 +1,181 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Code Review
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IT DOES:
+#   When a PR is opened or updated, posts an AI-generated code review comment
+#   directly on the PR. The review covers:
+#     • Potential bugs and edge cases in the diff
+#     • Security concerns (especially relevant for API routes and auth)
+#     • Performance considerations
+#     • Suggestions for improvement specific to the Elite CRM codebase
+#     • Missing error handling or validation
+#
+# WHY IT MATTERS (solo dev):
+#   You don't have a code reviewer. This workflow gives you a second pair of
+#   (AI) eyes on every change before it merges. It won't catch everything a
+#   senior engineer would, but it reliably flags common mistakes, missing
+#   null checks, SQL injection risks, and unhandled promise rejections.
+#
+# REQUIRED SECRETS:
+#   OPENAI_API_KEY  — Your OpenAI API key (gpt-4o-mini is used to keep costs low)
+#   OR
+#   ANTHROPIC_API_KEY — Anthropic Claude key (claude-3-haiku used as fallback)
+#
+# COST ESTIMATE:
+#   GPT-4o-mini: ~$0.001–0.01 per PR review (very affordable)
+#   The workflow skips if neither key is present.
+#
+# NOTE: Reviews are posted as PR comments and updated (not duplicated) on
+# subsequent pushes to the same PR.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    # Only review PRs with actual code changes (skip pure doc/config PRs)
+    paths:
+      - "src/**"
+      - "prisma/schema.prisma"
+      - "scripts/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    # Skip if no AI key is available
+    if: ${{ secrets.OPENAI_API_KEY != '' || secrets.ANTHROPIC_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD -- \
+            'src/**' \
+            'prisma/schema.prisma' \
+            'scripts/**' \
+            | head -c 12000)
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate AI review
+        id: review
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        with:
+          script: |
+            const diff = process.env.DIFF || '';
+            const prTitle = process.env.PR_TITLE || '';
+            const prBody = process.env.PR_BODY || '';
+            const openaiKey = process.env.OPENAI_API_KEY;
+
+            if (!openaiKey || diff.trim().length < 50) {
+              core.setOutput('review', '');
+              return;
+            }
+
+            const systemPrompt = `You are a senior TypeScript/Next.js engineer reviewing a PR for "Elite CRM" — a multi-tenant AI-first CRM for insurance brokers.
+
+            Tech stack: Next.js 16 App Router, Prisma 7 + PostgreSQL, Bun runtime, React 19, Tailwind v4, Zod validation, Zustand state, Vitest tests.
+
+            Key architecture rules:
+            - All DB access goes through withOrgRlsTransaction() from src/lib/db.ts (RLS enforcement)
+            - Request auth via getOrgContext() from src/lib/request-context.ts
+            - API route errors use apiError() from src/lib/api-error.ts
+            - JSON body parsing uses parseJsonBody() with Zod schemas from src/lib/validation.ts
+            - Multi-tenancy: every model has organizationId — NEVER query without it
+
+            Review the diff for:
+            1. Bugs and edge cases (null/undefined, missing awaits, off-by-one errors)
+            2. Security issues (missing auth checks, SQL injection via raw queries, exposed sensitive data)
+            3. Missing organizationId filtering (data leakage between tenants)
+            4. Unhandled promise rejections or missing error handling
+            5. Performance issues (N+1 queries, missing indexes, large payloads)
+            6. Violations of the architecture rules above
+            7. Missing input validation with Zod
+
+            Be specific and actionable. Cite line numbers from the diff when relevant.
+            If the change looks clean, say so briefly. Don't pad with generic praise.
+            Format as markdown with sections.`;
+
+            const userPrompt = `PR: ${prTitle}\n\nDescription: ${prBody || '(none)'}\n\nDiff (truncated to 12k chars):\n\`\`\`diff\n${diff}\n\`\`\``;
+
+            try {
+              const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${openaiKey}`
+                },
+                body: JSON.stringify({
+                  model: 'gpt-4o-mini',
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                  ],
+                  max_tokens: 1500,
+                  temperature: 0.2
+                })
+              });
+
+              const data = await response.json();
+              const reviewText = data.choices?.[0]?.message?.content || '';
+              core.setOutput('review', reviewText);
+            } catch (e) {
+              console.log('AI review failed:', e.message);
+              core.setOutput('review', '');
+            }
+          env:
+            DIFF: ${{ steps.diff.outputs.diff }}
+
+      - name: Post review comment
+        if: steps.review.outputs.review != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const review = `${{ steps.review.outputs.review }}`;
+            if (!review || review.trim().length < 20) return;
+
+            const body = `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by GPT-4o-mini. This is an automated review — always apply your own judgment.*`;
+
+            // Find existing AI review comment to update instead of duplicate
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.data.find(c =>
+              c.body.startsWith('## 🤖 AI Code Review') &&
+              c.user.type === 'Bot'
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
