@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import type { Prisma } from '@prisma/client'
+import { withOrgRlsTransaction } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
@@ -136,7 +137,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    void runScrapeJob(job.id).catch((error) => {
+    void runScrapeJob(job.id, context.organizationId).catch((error) => {
       console.error(`Scrape job ${job.id} crashed:`, error)
     })
 
@@ -189,79 +190,114 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function runScrapeJob(jobId: string) {
+async function runScrapeJob(jobId: string, organizationId: string) {
   if (runningJobs.has(jobId)) return
   runningJobs.add(jobId)
 
   try {
-    const job = await db.scrapeJob.findUnique({ where: { id: jobId } })
-    if (!job) return
-    const organizationId = job.organizationId
+    await withOrgRlsTransaction(organizationId, async () => {
+      const job = await db.scrapeJob.findUnique({ where: { id: jobId } })
+      if (!job) return
 
-    const config = (job.config || {}) as ScrapeConfig
-    const queue = [
-      ...(Array.isArray(job.urls) ? (job.urls as string[]) : [job.sourceUrl]),
-    ].filter(Boolean)
-    const visited = new Set<string>()
-    const contacts: ScrapeContact[] = []
-    const errors: string[] = []
+      const config = (job.config || {}) as ScrapeConfig
+      const queue = [
+        ...(Array.isArray(job.urls) ? (job.urls as string[]) : [job.sourceUrl]),
+      ].filter(Boolean)
+      const visited = new Set<string>()
+      const contacts: ScrapeContact[] = []
+      const errors: string[] = []
 
-    await db.scrapeJob.update({
-      where: { id: jobId },
-      data: { status: 'running', startedAt: new Date() },
-    })
-
-    while (queue.length > 0 && visited.size < (config.maxPages || 15)) {
-      const current = normalizeUrl(queue.shift() || '')
-      if (!current || visited.has(current)) continue
-      visited.add(current)
-
-      try {
-        if (config.respectRobots) {
-          const allowed = await isAllowedByRobots(current)
-          if (!allowed) {
-            errors.push(`${current}: blocked by robots policy`)
-            continue
-          }
-        }
-        const html = await fetchPage(current, config)
-        const extracted = extractContactsFromHtml(current, html)
-        contacts.push(...extracted)
-
-        if (config.followLinks) {
-          const discoveredLinks = extractLinks(current, html)
-          for (const link of discoveredLinks) {
-            if (!visited.has(link) && queue.length + visited.size < (config.maxPages || 15) * 2) {
-              queue.push(link)
-            }
-          }
-        }
-      } catch (error) {
-        errors.push(`${current}: ${error instanceof Error ? error.message : 'Unknown fetch error'}`)
-      }
-
-      const jitter = config.jitterMs ? Math.floor(Math.random() * config.jitterMs) : 0
-      if (config.delayMs || jitter) await sleep((config.delayMs || 0) + jitter)
-    }
-
-    const unique = dedupeContacts(contacts)
-    let leadsCreated = 0
-    let duplicates = 0
-
-    for (const contact of unique) {
-      if (!contact.email && !contact.phone) continue
-      const existing = await db.lead.findFirst({
-        where: {
-          organizationId,
-          OR: [
-            ...(contact.email ? [{ email: contact.email.toLowerCase() }] : []),
-            ...(contact.phone ? [{ phone: normalizePhone(contact.phone) }] : []),
-          ],
-        },
+      await db.scrapeJob.update({
+        where: { id: jobId },
+        data: { status: 'running', startedAt: new Date() },
       })
 
-      if (existing) {
-        duplicates++
+      while (queue.length > 0 && visited.size < (config.maxPages || 15)) {
+        const current = normalizeUrl(queue.shift() || '')
+        if (!current || visited.has(current)) continue
+        visited.add(current)
+
+        try {
+          if (config.respectRobots) {
+            const allowed = await isAllowedByRobots(current)
+            if (!allowed) {
+              errors.push(`${current}: blocked by robots policy`)
+              continue
+            }
+          }
+          const html = await fetchPage(current, config)
+          const extracted = extractContactsFromHtml(current, html)
+          contacts.push(...extracted)
+
+          if (config.followLinks) {
+            const discoveredLinks = extractLinks(current, html)
+            for (const link of discoveredLinks) {
+              if (!visited.has(link) && queue.length + visited.size < (config.maxPages || 15) * 2) {
+                queue.push(link)
+              }
+            }
+          }
+        } catch (error) {
+          errors.push(`${current}: ${error instanceof Error ? error.message : 'Unknown fetch error'}`)
+        }
+
+        const jitter = config.jitterMs ? Math.floor(Math.random() * config.jitterMs) : 0
+        if (config.delayMs || jitter) await sleep((config.delayMs || 0) + jitter)
+      }
+
+      const unique = dedupeContacts(contacts)
+      let leadsCreated = 0
+      let duplicates = 0
+
+      for (const contact of unique) {
+        if (!contact.email && !contact.phone) continue
+        const existing = await db.lead.findFirst({
+          where: {
+            organizationId,
+            OR: [
+              ...(contact.email ? [{ email: contact.email.toLowerCase() }] : []),
+              ...(contact.phone ? [{ phone: normalizePhone(contact.phone) }] : []),
+            ],
+          },
+        })
+
+        if (existing) {
+          duplicates++
+          await db.scrapedContact.create({
+            data: {
+              organizationId,
+              scrapeJobId: jobId,
+              sourceUrl: contact.sourceUrl,
+              rawData: contact.rawData,
+              email: contact.email || null,
+              phone: contact.phone ? normalizePhone(contact.phone) : null,
+              firstName: contact.firstName || null,
+              lastName: contact.lastName || null,
+              company: contact.company || null,
+              title: contact.title || null,
+              leadId: existing.id,
+            },
+          })
+          continue
+        }
+
+        const lead = await db.lead.create({
+          data: {
+            organizationId,
+            source: 'scrape',
+            status: 'new',
+            firstName: contact.firstName || null,
+            lastName: contact.lastName || null,
+            email: contact.email?.toLowerCase() || null,
+            phone: contact.phone ? normalizePhone(contact.phone) : null,
+            company: contact.company || null,
+            title: contact.title || null,
+            aiInsights: {
+              scrapedFrom: contact.sourceUrl,
+            },
+          },
+        })
+
         await db.scrapedContact.create({
           data: {
             organizationId,
@@ -274,72 +310,38 @@ async function runScrapeJob(jobId: string) {
             lastName: contact.lastName || null,
             company: contact.company || null,
             title: contact.title || null,
-            leadId: existing.id,
+            leadId: lead.id,
           },
         })
-        continue
+
+        await db.activity.create({
+          data: {
+            organizationId,
+            leadId: lead.id,
+            type: 'import',
+            title: 'Lead imported from web scrape',
+            description: contact.sourceUrl,
+          },
+        })
+        leadsCreated++
       }
 
-      const lead = await db.lead.create({
+      const status = errors.length > 0 && leadsCreated === 0 ? 'failed' : errors.length > 0 ? 'partial' : 'completed'
+      await db.scrapeJob.update({
+        where: { id: jobId },
         data: {
-          organizationId,
-          source: 'scrape',
-          status: 'new',
-          firstName: contact.firstName || null,
-          lastName: contact.lastName || null,
-          email: contact.email?.toLowerCase() || null,
-          phone: contact.phone ? normalizePhone(contact.phone) : null,
-          company: contact.company || null,
-          title: contact.title || null,
-          aiInsights: {
-            scrapedFrom: contact.sourceUrl,
+          status,
+          completedAt: new Date(),
+          error: errors.length > 0 ? errors.slice(0, 20).join(' | ') : null,
+          stats: {
+            pagesScraped: visited.size,
+            contactsFound: unique.length,
+            leadsCreated,
+            duplicates,
+            errors,
           },
         },
       })
-
-      await db.scrapedContact.create({
-        data: {
-          organizationId,
-          scrapeJobId: jobId,
-          sourceUrl: contact.sourceUrl,
-          rawData: contact.rawData,
-          email: contact.email || null,
-          phone: contact.phone ? normalizePhone(contact.phone) : null,
-          firstName: contact.firstName || null,
-          lastName: contact.lastName || null,
-          company: contact.company || null,
-          title: contact.title || null,
-          leadId: lead.id,
-        },
-      })
-
-      await db.activity.create({
-        data: {
-          organizationId,
-          leadId: lead.id,
-          type: 'import',
-          title: 'Lead imported from web scrape',
-          description: contact.sourceUrl,
-        },
-      })
-      leadsCreated++
-    }
-
-    const status = errors.length > 0 && leadsCreated === 0 ? 'failed' : errors.length > 0 ? 'partial' : 'completed'
-    await db.scrapeJob.update({
-      where: { id: jobId },
-      data: {
-        status,
-        completedAt: new Date(),
-        error: errors.length > 0 ? errors.slice(0, 20).join(' | ') : null,
-        stats: {
-          pagesScraped: visited.size,
-          contactsFound: unique.length,
-          leadsCreated,
-          duplicates,
-          errors,
-        },
-      },
     })
   } finally {
     runningJobs.delete(jobId)

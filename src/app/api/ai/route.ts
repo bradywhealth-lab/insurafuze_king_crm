@@ -2,11 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { zaiChatJson, zaiChatMessages } from '@/lib/zai'
 
 const aiRequestSchema = z.object({
   action: z.enum(['score-lead', 'generate-content', 'generate-media', 'generate-insights', 'chat']),
   data: z.record(z.string(), z.unknown()).default({}),
 })
+
+function extractJsonObject(text: string | null): Record<string, unknown> | null {
+  if (!text) return null
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) return null
+  try {
+    return JSON.parse(jsonMatch[0]) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
 
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
@@ -16,10 +28,7 @@ export async function POST(request: NextRequest) {
     const parsed = await parseJsonBody(request, aiRequestSchema)
     if (!parsed.success) return parsed.response
     const { action, data } = parsed.data
-    
-    // Dynamic import for server-side only
-    const { LLM } = await import('z-ai-web-dev-sdk')
-    
+
     switch (action) {
       case 'score-lead': {
         const prompt = `Analyze this lead and provide a quality score from 0-100 based on their profile.
@@ -47,18 +56,12 @@ Respond in JSON format:
   "tags": ["tag1", "tag2"]
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        // Parse the JSON response
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        const aiText = await zaiChatJson(prompt)
+        const aiResult = extractJsonObject(aiText)
+        if (aiResult) {
+          return NextResponse.json(aiResult)
         }
-        
+
         return NextResponse.json({
           score: 50,
           confidence: 0.5,
@@ -87,20 +90,15 @@ Provide the response in JSON format:
   "bestTimeToPost": "<suggested time>"
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
+        const aiText = await zaiChatJson(prompt)
+        const aiResult = extractJsonObject(aiText)
+        if (aiResult) {
           return NextResponse.json({
-            ...parsed,
+            ...aiResult,
             aiGenerated: true
           })
         }
-        
+
         return NextResponse.json({
           title: topic,
           content: `Check out our latest insights on ${topic}! #Business #Growth`,
@@ -123,16 +121,11 @@ Return JSON:
   "cta": "<call to action>"
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
+        const aiText = await zaiChatJson(prompt)
+        const aiResult = extractJsonObject(aiText)
+        if (aiResult) {
           return NextResponse.json({
-            ...parsed,
+            ...aiResult,
             aiGenerated: true
           })
         }
@@ -168,17 +161,12 @@ Provide 3-5 insights in JSON format:
   ]
 }`
 
-        const result = await LLM.chat({
-          messages: [{ role: 'user', content: prompt }],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
-        const jsonMatch = result.content?.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          return NextResponse.json(parsed)
+        const aiText = await zaiChatJson(prompt)
+        const aiResult = extractJsonObject(aiText)
+        if (aiResult) {
+          return NextResponse.json(aiResult)
         }
-        
+
         // Fallback insights
         return NextResponse.json({
           insights: [
@@ -209,17 +197,14 @@ Provide 3-5 insights in JSON format:
 You help users manage leads, analyze data, and optimize their sales process.
 Be concise, professional, and actionable in your responses.
 Context: ${JSON.stringify(context)}`
-        
-        const result = await LLM.chat({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages
-          ],
-          model: 'claude-3-5-sonnet-20241022'
-        })
-        
+
+        const responseText = await zaiChatMessages([
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ])
+
         return NextResponse.json({
-          message: result.content,
+          message: responseText || 'AI assistant is unavailable right now. Continue with manual review and CRM workflows.',
           success: true
         })
       }

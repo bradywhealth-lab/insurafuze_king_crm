@@ -4,6 +4,7 @@ import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { zaiChatJson } from '@/lib/zai'
 
 const carrierPlaybookSchema = z.object({
   leadId: z.string().min(1),
@@ -433,12 +434,7 @@ Respond as strict JSON only using this schema:
 }`
 
     try {
-      const { LLM } = await import('z-ai-web-dev-sdk')
-      const result = await LLM.chat({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'claude-3-5-sonnet-20241022',
-      })
-      const content = typeof result.content === 'string' ? result.content : ''
+      const content = (await zaiChatJson(prompt)) || ''
       const jsonCandidate = content.match(/\{[\s\S]*\}/)?.[0] || ''
       const parsed = safeJsonParse<PlaybookResponse>(jsonCandidate)
 
