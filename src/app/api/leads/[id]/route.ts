@@ -15,7 +15,7 @@ type Params = { params: Promise<{ id: string }> }
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
-    return withRequestOrgContext(request, async (context) => {
+    return await withRequestOrgContext(request, async (context) => {
     const { id } = await params
 
     const lead = await db.lead.findFirst({
@@ -89,7 +89,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   try {
     const limited = enforceRateLimit(request, { key: 'leads-delete', limit: 80, windowMs: 60_000 })
     if (limited) return limited
-    return withRequestOrgContext(request, async (context) => {
+    return await withRequestOrgContext(request, async (context) => {
     const { id } = await params
 
     const lead = await db.lead.findFirst({

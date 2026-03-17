@@ -17,7 +17,7 @@ type Params = { params: Promise<{ id: string }> }
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
-    return withRequestOrgContext(request, async (context) => {
+    return await withRequestOrgContext(request, async (context) => {
     const { id } = await params
 
     const carrier = await db.carrier.findFirst({
@@ -84,7 +84,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   try {
     const limited = enforceRateLimit(request, { key: 'carriers-delete', limit: 60, windowMs: 60_000 })
     if (limited) return limited
-    return withRequestOrgContext(request, async (context) => {
+    return await withRequestOrgContext(request, async (context) => {
     const { id } = await params
 
     const existing = await db.carrier.findFirst({

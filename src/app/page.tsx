@@ -1326,7 +1326,10 @@ function PipelineView() {
 
   useEffect(() => {
     fetch('/api/pipeline')
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Pipeline fetch failed (${r.status})`)
+        return r.json()
+      })
       .then((data) => {
         if (data.pipeline?.stages && data.pipeline.stages.length > 0) {
           const mapped = data.pipeline.stages.map((s: { id: string; name: string; color: string; order: number; items: Array<{ id: string; title: string; value: number | null; probability: number | null; stageId: string; leadId: string | null; lead: Lead | null; expectedClose: string | null }> }) => ({
@@ -1349,7 +1352,9 @@ function PipelineView() {
           setStages(mapped)
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Pipeline load error:', err)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -1405,15 +1410,27 @@ function PipelineView() {
     const activeId = String(active.id)
     const overId = String(over.id)
 
-    const targetStage = stages.find((s) => s.id === overId) || findStageByItemId(activeId)
+    const isOverColumn = stages.some((s) => s.id === overId)
+    const targetStage = isOverColumn
+      ? stages.find((s) => s.id === overId)
+      : stages.find((s) => s.items.some((i) => i.id === overId))
     if (!targetStage) return
+
+    const snapshotBeforeDrag = stages
 
     fetch('/api/pipeline', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itemId: activeId, stageId: targetStage.id, position: 0 }),
-    }).catch(() => {})
-  }, [findStageByItemId, stages])
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to save')
+      })
+      .catch(() => {
+        setStages(snapshotBeforeDrag)
+        toast({ title: 'Move failed', description: 'Could not save the stage change. Reverted.', variant: 'destructive' })
+      })
+  }, [stages])
   
   const totalValue = stages.reduce((sum, stage) => 
     sum + stage.items.reduce((s, item) => s + (item.value || 0), 0), 0
