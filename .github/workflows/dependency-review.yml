@@ -6,7 +6,8 @@ name: Dependency Review
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
   schedule:
     - cron: "0 9 * * 1" # Every Monday 9 AM UTC
 
@@ -15,25 +16,50 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Runs on PRs — flags new vulnerabilities introduced by the diff
-  review:
-    name: Review new dependencies
+  dependency-review:
+    name: Block vulnerable dependency changes
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Detect dependency graph support
+        id: graph
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              const { data } = await github.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              const status = data.security_and_analysis?.dependency_graph?.status ?? "unknown";
+              const enabled = status === "enabled";
+              core.info(`Dependency graph status: ${status}`);
+              core.setOutput("enabled", String(enabled));
+            } catch (error) {
+              core.warning(`Could not read dependency graph status: ${error.message}`);
+              core.setOutput("enabled", "false");
+            }
+
+      - name: Review dependencies
+        if: steps.graph.outputs.enabled == 'true'
+        uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
 
-  # Weekly audit of main branch
+      - name: Skip because dependency graph is disabled
+        if: steps.graph.outputs.enabled != 'true'
+        run: echo "Dependency graph is disabled; skipping dependency review."
+
   audit:
     name: Weekly security audit
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

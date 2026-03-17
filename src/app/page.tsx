@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   LayoutDashboard, Users, GitBranch, Brain, Share2, Settings,
@@ -35,13 +36,14 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { useAppStore, type Lead, type PipelineItem, type Activity as ActivityType, type AIInsight } from "@/lib/store"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core"
+import { DndContext, closestCorners, KeyboardSensor, PointerSensor, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, useDroppable } from "@dnd-kit/core"
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, LineChart, Line } from "recharts"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { CommandPalette, useCommandPalette } from "@/components/command-palette"
+import { AutomationView } from "@/components/automation/automation-view"
 import { triggerWinCelebration, triggerSmallCelebration } from "@/lib/celebrations"
 import { toast } from "@/hooks/use-toast"
 
@@ -53,9 +55,9 @@ import { toast } from "@/hooks/use-toast"
 const _base = "2026-03-11T22:00:00.000Z"
 const _yesterday = "2026-03-10T22:00:00.000Z"
 const mockLeads: Lead[] = [
-  { id: "1", firstName: "Sarah", lastName: "Johnson", email: "sarah@techcorp.com", phone: "(555) 123-4567", company: "TechCorp Inc", title: "CTO", source: "linkedin", status: "qualified", aiScore: 92, aiConfidence: 0.89, aiInsights: { intent: "high", budget: "confirmed" }, aiNextAction: "Schedule demo call", estimatedValue: 50000, lastContactedAt: _base, createdAt: _base, tags: [{ id: "1", name: "Hot Lead", color: "#D4AF37" }] },
+  { id: "1", firstName: "Sarah", lastName: "Johnson", email: "sarah@techcorp.com", phone: "(555) 123-4567", company: "TechCorp Inc", title: "CTO", source: "linkedin", status: "qualified", aiScore: 92, aiConfidence: 0.89, aiInsights: { intent: "high", budget: "confirmed" }, aiNextAction: "Schedule demo call", estimatedValue: 50000, lastContactedAt: _base, createdAt: _base, tags: [{ id: "1", name: "Hot Lead", color: "#3B8595" }] },
   { id: "2", firstName: "Michael", lastName: "Chen", email: "mchen@startup.io", phone: "(555) 234-5678", company: "Startup.io", title: "Founder", source: "referral", status: "new", aiScore: 78, aiConfidence: 0.75, aiInsights: { intent: "medium" }, aiNextAction: "Send introductory email", estimatedValue: 25000, lastContactedAt: null, createdAt: _base, tags: [] },
-  { id: "3", firstName: "Emily", lastName: "Davis", email: "emily@enterprise.com", phone: "(555) 345-6789", company: "Enterprise Solutions", title: "VP of Sales", source: "website", status: "proposal", aiScore: 85, aiConfidence: 0.82, aiInsights: { intent: "high", timeline: "Q1" }, aiNextAction: "Follow up on proposal", estimatedValue: 75000, lastContactedAt: _yesterday, createdAt: _base, tags: [{ id: "2", name: "Enterprise", color: "#0A0A0A" }] },
+  { id: "3", firstName: "Emily", lastName: "Davis", email: "emily@enterprise.com", phone: "(555) 345-6789", company: "Enterprise Solutions", title: "VP of Sales", source: "website", status: "proposal", aiScore: 85, aiConfidence: 0.82, aiInsights: { intent: "high", timeline: "Q1" }, aiNextAction: "Follow up on proposal", estimatedValue: 75000, lastContactedAt: _yesterday, createdAt: _base, tags: [{ id: "2", name: "Enterprise", color: "#1E293B" }] },
   { id: "4", firstName: "James", lastName: "Wilson", email: "jwilson@agency.co", phone: "(555) 456-7890", company: "Creative Agency", title: "Director", source: "google", status: "negotiation", aiScore: 88, aiConfidence: 0.91, aiInsights: { intent: "high", decisionMaker: true }, aiNextAction: "Send contract", estimatedValue: 120000, lastContactedAt: _base, createdAt: _base, tags: [] },
   { id: "5", firstName: "Lisa", lastName: "Anderson", email: "lisa@retail.com", phone: "(555) 567-8901", company: "Retail Giants", title: "CEO", source: "referral", status: "new", aiScore: 65, aiConfidence: 0.68, aiInsights: {}, aiNextAction: "Research company needs", estimatedValue: 30000, lastContactedAt: null, createdAt: _base, tags: [] },
 ]
@@ -66,18 +68,18 @@ const _p3Close = "2026-03-25T22:00:00.000Z"
 const _p4Close = "2026-03-30T22:00:00.000Z"
 const _p5Close = "2026-03-22T22:00:00.000Z"
 const mockPipelineStages = [
-  { id: "new", name: "New", color: "#0A0A0A", order: 0, items: [
+  { id: "new", name: "New", color: "#1E293B", order: 0, items: [
     { id: "p1", title: "Michael Chen - Startup.io", value: 25000, probability: 20, stageId: "new", leadId: "2", lead: mockLeads[1], aiWinProbability: 0.35, expectedClose: _p1Close },
     { id: "p2", title: "Lisa Anderson - Retail Giants", value: 30000, probability: 15, stageId: "new", leadId: "5", lead: mockLeads[4], aiWinProbability: 0.28, expectedClose: _p2Close },
   ]},
   { id: "contacted", name: "Contacted", color: "#6B7280", order: 1, items: [] },
-  { id: "qualified", name: "Qualified", color: "#D4AF37", order: 2, items: [
+  { id: "qualified", name: "Qualified", color: "#3B8595", order: 2, items: [
     { id: "p3", title: "Sarah Johnson - TechCorp", value: 50000, probability: 60, stageId: "qualified", leadId: "1", lead: mockLeads[0], aiWinProbability: 0.72, expectedClose: _p3Close },
   ]},
   { id: "proposal", name: "Proposal", color: "#0284C7", order: 3, items: [
     { id: "p4", title: "Emily Davis - Enterprise", value: 75000, probability: 70, stageId: "proposal", leadId: "3", lead: mockLeads[2], aiWinProbability: 0.68, expectedClose: _p4Close },
   ]},
-  { id: "negotiation", name: "Negotiation", color: "#8B7355", order: 4, items: [
+  { id: "negotiation", name: "Negotiation", color: "#7C3AED", order: 4, items: [
     { id: "p5", title: "James Wilson - Agency", value: 120000, probability: 85, stageId: "negotiation", leadId: "4", lead: mockLeads[3], aiWinProbability: 0.89, expectedClose: _p5Close },
   ]},
   { id: "won", name: "Won", color: "#059669", order: 5, items: [] },
@@ -109,17 +111,17 @@ const chartData = [
 ]
 
 const sourceData = [
-  { name: "LinkedIn", value: 35, color: "#D4AF37" },
-  { name: "Referral", value: 28, color: "#0A0A0A" },
-  { name: "Website", value: 20, color: "#B8860B" },
-  { name: "Google", value: 12, color: "#F4D03F" },
-  { name: "Other", value: 5, color: "#8B7355" },
+  { name: "LinkedIn", value: 35, color: "#3B8595" },
+  { name: "Referral", value: 28, color: "#1E293B" },
+  { name: "Website", value: 20, color: "#2A6A78" },
+  { name: "Google", value: 12, color: "#5BA3B3" },
+  { name: "Other", value: 5, color: "#7C3AED" },
 ]
 
 const chartConfig: ChartConfig = {
-  leads: { label: "Leads", color: "#D4AF37" },
-  won: { label: "Won", color: "#0A0A0A" },
-  revenue: { label: "Revenue", color: "#B8860B" },
+  leads: { label: "Leads", color: "#3B8595" },
+  won: { label: "Won", color: "#1E293B" },
+  revenue: { label: "Revenue", color: "#2A6A78" },
 }
 
 // Utility Components
@@ -147,8 +149,8 @@ function AnimatedNumber({ value, prefix = "", suffix = "" }: { value: number; pr
 }
 
 function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 80 ? "bg-gradient-to-r from-[#D4AF37] to-[#F4D03F] text-black" : 
-                score >= 60 ? "bg-[#B8860B] text-white" : "bg-[#0A0A0A] text-white"
+  const color = score >= 80 ? "bg-gradient-to-r from-[#3B8595] to-[#5BA3B3] text-black" : 
+                score >= 60 ? "bg-[#2A6A78] text-white" : "bg-[#1E293B] text-white"
   return (
     <div className={cn("px-2 py-0.5 rounded text-xs font-semibold", color)}>
       {score}
@@ -160,9 +162,9 @@ function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     new: "bg-black text-white",
     contacted: "bg-gray-600 text-white",
-    qualified: "bg-[#D4AF37] text-black",
+    qualified: "bg-[#3B8595] text-black",
     proposal: "bg-blue-600 text-white",
-    negotiation: "bg-[#8B7355] text-white",
+    negotiation: "bg-[#7C3AED] text-white",
     won: "bg-emerald-600 text-white",
     lost: "bg-red-600 text-white",
   }
@@ -174,13 +176,15 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // Sidebar Component
-function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveView: (v: string) => void }) {
+function Sidebar({ activeView, setActiveView, userName, userRole, onSignOut }: { activeView: string; setActiveView: (v: string) => void; userName?: string | null; userRole?: string | null; onSignOut?: () => void }) {
   const { sidebarOpen, setSidebarOpen } = useAppStore()
   
   const menuItems = [
     { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { id: "leads", icon: Users, label: "Leads" },
     { id: "pipeline", icon: GitBranch, label: "Pipeline" },
+    { id: "commissions", icon: DollarSign, label: "Commissions" },
+    { id: "analytics", icon: BarChart3, label: "Analytics" },
     { id: "uploads", icon: Upload, label: "CSV Uploads" },
     { id: "linear", icon: SquareKanban, label: "Linear" },
     { id: "automation", icon: Zap, label: "AI Automation" },
@@ -192,10 +196,10 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
     <motion.aside
       initial={false}
       animate={{ width: sidebarOpen ? 260 : 80 }}
-      className="h-screen bg-[#0A0A0A] border-r border-[#2A2A2A] flex flex-col fixed left-0 top-0 z-40"
+      className="h-screen bg-[#1E293B] border-r border-[#334155] flex flex-col fixed left-0 top-0 z-40"
     >
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-[#2A2A2A]">
+      <div className="h-16 flex items-center justify-between px-4 border-b border-[#334155]">
         <AnimatePresence mode="wait">
           {sidebarOpen && (
             <motion.div
@@ -204,10 +208,10 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
               exit={{ opacity: 0 }}
               className="flex items-center gap-2"
             >
-              <div className="w-9 h-9 rounded-lg bg-linear-to-br from-[#D4AF37] to-[#F4D03F] flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-linear-to-br from-[#3B8595] to-[#5BA3B3] flex items-center justify-center">
                 <Bot className="w-5 h-5 text-black" />
               </div>
-              <span className="font-bold text-xl text-white">Elite<span className="text-[#D4AF37]">CRM</span></span>
+              <span className="font-bold text-xl text-white">Elite<span className="text-[#3B8595]">CRM</span></span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -215,7 +219,7 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
           variant="ghost"
           size="icon"
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="text-gray-400 hover:text-white hover:bg-[#1A1A1A]"
+          className="text-gray-400 hover:text-white hover:bg-[#334155]"
         >
           {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </Button>
@@ -230,8 +234,8 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
               activeView === item.id
-                ? "bg-linear-to-r from-[#D4AF37]/20 to-transparent text-[#D4AF37] border-l-2 border-[#D4AF37]"
-                : "text-gray-400 hover:bg-[#1A1A1A] hover:text-white"
+                ? "bg-linear-to-r from-[#3B8595]/20 to-transparent text-[#3B8595] border-l-2 border-[#3B8595]"
+                : "text-gray-400 hover:bg-[#334155] hover:text-white"
             )}
           >
             <item.icon className="w-5 h-5 shrink-0" />
@@ -252,13 +256,13 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
       </nav>
       
       {/* User Profile */}
-      <div className="p-3 border-t border-[#2A2A2A]">
+      <div className="p-3 border-t border-[#334155]">
         <div className={cn(
-          "flex items-center gap-3 p-2 rounded-lg bg-[#1A1A1A]",
+          "flex items-center gap-3 p-2 rounded-lg bg-[#334155]",
           !sidebarOpen && "justify-center"
         )}>
-          <Avatar className="w-9 h-9 border-2 border-[#D4AF37]">
-            <AvatarFallback className="bg-[#D4AF37] text-black font-semibold">JD</AvatarFallback>
+          <Avatar className="w-9 h-9 border-2 border-[#3B8595]">
+            <AvatarFallback className="bg-[#3B8595] text-white font-semibold">{(userName || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
           <AnimatePresence mode="wait">
             {sidebarOpen && (
@@ -268,11 +272,16 @@ function Sidebar({ activeView, setActiveView }: { activeView: string; setActiveV
                 exit={{ opacity: 0 }}
                 className="flex-1 min-w-0"
               >
-                <p className="text-sm font-medium text-white truncate">John Doe</p>
-                <p className="text-xs text-[#D4AF37] truncate">Admin</p>
+                <p className="text-sm font-medium text-white truncate">{userName || 'User'}</p>
+                <p className="text-xs text-[#3B8595] truncate capitalize">{userRole || 'Agent'}</p>
               </motion.div>
             )}
           </AnimatePresence>
+          {sidebarOpen && onSignOut && (
+            <button onClick={onSignOut} className="text-slate-400 hover:text-white p-1" title="Sign out">
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </motion.aside>
@@ -291,13 +300,13 @@ function Header({ onAddLead, onNotifications }: { onAddLead: () => void; onNotif
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const unreadCount = mockNotifications.filter(n => n.unread).length
   return (
-    <header className="h-16 bg-white/80 backdrop-blur-sm border-b border-[#E8E4D9] flex items-center justify-between px-6 sticky top-0 z-30">
+    <header className="h-16 bg-white/80 backdrop-blur-sm border-b border-[#E2DDD4] flex items-center justify-between px-6 sticky top-0 z-30">
       <div className="flex items-center gap-4 flex-1">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
             placeholder="Search leads, deals, contacts..."
-            className="pl-10 bg-[#F8F4E8] border-[#E8E4D9] focus:border-[#D4AF37] focus:ring-[#D4AF37]"
+            className="pl-10 bg-[#F5F1EA] border-[#E2DDD4] focus:border-[#3B8595] focus:ring-[#3B8595]"
           />
         </div>
       </div>
@@ -308,19 +317,19 @@ function Header({ onAddLead, onNotifications }: { onAddLead: () => void; onNotif
             <Button
               variant="ghost"
               size="icon"
-              className="relative text-gray-500 hover:text-[#D4AF37] hover:bg-[#FEFCF6]"
+              className="relative text-gray-500 hover:text-[#3B8595] hover:bg-[#FDFBF7]"
             >
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-[#D4AF37] rounded-full" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-[#3B8595] rounded-full" />
               )}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 bg-white border-[#E8E4D9]">
+          <DropdownMenuContent align="end" className="w-80 bg-white border-[#E2DDD4]">
             <DropdownMenuLabel className="flex items-center justify-between">
               <span>Notifications</span>
               {unreadCount > 0 && (
-                <Badge variant="secondary" className="bg-[#D4AF37]/20 text-[#B8860B]">{unreadCount}</Badge>
+                <Badge variant="secondary" className="bg-[#3B8595]/20 text-[#2A6A78]">{unreadCount}</Badge>
               )}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -332,7 +341,7 @@ function Header({ onAddLead, onNotifications }: { onAddLead: () => void; onNotif
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-center text-[#D4AF37] font-medium" onSelect={() => setNotificationsOpen(false)}>
+            <DropdownMenuItem className="text-center text-[#3B8595] font-medium" onSelect={() => setNotificationsOpen(false)}>
               Mark all as read
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -367,7 +376,7 @@ function DashboardView() {
   }, [])
 
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
@@ -376,7 +385,7 @@ function DashboardView() {
           { title: "Avg Lead Score", value: 78, change: 5, icon: Target, color: "gold" },
           { title: "Won This Month", value: 24, change: 18, icon: CheckCircle2, color: "emerald" },
         ].map((stat) => (
-          <Card key={stat.title} className="bg-white border-[#E8E4D9] shadow-sm hover:shadow-md transition-shadow card-hover">
+          <Card key={stat.title} className="bg-white border-[#E2DDD4] shadow-sm hover:shadow-md transition-shadow card-hover">
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div>
@@ -387,13 +396,13 @@ function DashboardView() {
                 </div>
                 <div className={cn(
                   "w-10 h-10 rounded-lg flex items-center justify-center",
-                  stat.color === "gold" && "bg-[#D4AF37]/20",
+                  stat.color === "gold" && "bg-[#3B8595]/20",
                   stat.color === "black" && "bg-black",
                   stat.color === "emerald" && "bg-emerald-100",
                 )}>
                   <stat.icon className={cn(
                     "w-5 h-5",
-                    stat.color === "gold" && "text-[#D4AF37]",
+                    stat.color === "gold" && "text-[#3B8595]",
                     stat.color === "black" && "text-white",
                     stat.color === "emerald" && "text-emerald-600",
                   )} />
@@ -418,7 +427,7 @@ function DashboardView() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Revenue Chart */}
-        <Card className="lg:col-span-2 bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="lg:col-span-2 bg-white border-[#E2DDD4] shadow-sm">
           <CardHeader>
             <CardTitle className="text-black">Revenue & Leads</CardTitle>
             <CardDescription className="text-gray-500">Monthly performance overview</CardDescription>
@@ -428,27 +437,27 @@ function DashboardView() {
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#3B8595" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#3B8595" stopOpacity={0}/>
                   </linearGradient>
                   <linearGradient id="colorWon" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0A0A0A" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#0A0A0A" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#1E293B" stopOpacity={0.2}/>
+                    <stop offset="95%" stopColor="#1E293B" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8E4D9" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2DDD4" />
                 <XAxis dataKey="month" stroke="#6B7280" fontSize={12} />
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Area type="monotone" dataKey="leads" stroke="#D4AF37" fillOpacity={1} fill="url(#colorLeads)" strokeWidth={2} />
-                <Area type="monotone" dataKey="won" stroke="#0A0A0A" fillOpacity={1} fill="url(#colorWon)" strokeWidth={2} />
+                <Area type="monotone" dataKey="leads" stroke="#3B8595" fillOpacity={1} fill="url(#colorLeads)" strokeWidth={2} />
+                <Area type="monotone" dataKey="won" stroke="#1E293B" fillOpacity={1} fill="url(#colorWon)" strokeWidth={2} />
               </AreaChart>
             </ChartContainer>
           </CardContent>
         </Card>
         
         {/* Lead Sources */}
-        <Card className="bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
           <CardHeader>
             <CardTitle className="text-black">Lead Sources</CardTitle>
             <CardDescription className="text-gray-500">Distribution by channel</CardDescription>
@@ -491,10 +500,10 @@ function DashboardView() {
       {/* AI Insights & Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* AI Insights */}
-        <Card className="bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[#D4AF37]" />
+              <Sparkles className="w-5 h-5 text-[#3B8595]" />
               <CardTitle className="text-black">AI Insights</CardTitle>
             </div>
             <CardDescription className="text-gray-500">Smart recommendations powered by AI</CardDescription>
@@ -507,7 +516,7 @@ function DashboardView() {
                 animate={{ opacity: 1, y: 0 }}
                 className={cn(
                   "p-3 rounded-lg border",
-                  insight.type === "prediction" && "bg-[#D4AF37]/5 border-[#D4AF37]/30",
+                  insight.type === "prediction" && "bg-[#3B8595]/5 border-[#3B8595]/30",
                   insight.type === "recommendation" && "bg-blue-50 border-blue-200",
                   insight.type === "trend" && "bg-emerald-50 border-emerald-200",
                   insight.type === "alert" && "bg-amber-50 border-amber-200",
@@ -518,7 +527,7 @@ function DashboardView() {
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         "text-xs font-medium uppercase",
-                        insight.type === "prediction" && "text-[#D4AF37]",
+                        insight.type === "prediction" && "text-[#3B8595]",
                         insight.type === "recommendation" && "text-blue-600",
                         insight.type === "trend" && "text-emerald-600",
                         insight.type === "alert" && "text-amber-600",
@@ -535,7 +544,7 @@ function DashboardView() {
                     <p className="text-xs text-gray-500 mt-0.5">{insight.description}</p>
                   </div>
                   {insight.actionable && (
-                    <Button size="sm" variant="ghost" className="text-[#D4AF37] hover:bg-[#D4AF37]/10 h-7 px-2">
+                    <Button size="sm" variant="ghost" className="text-[#3B8595] hover:bg-[#3B8595]/10 h-7 px-2">
                       <ArrowUpRight className="w-4 h-4" />
                     </Button>
                   )}
@@ -546,10 +555,10 @@ function DashboardView() {
         </Card>
         
         {/* Recent Activity */}
-        <Card className="bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-[#D4AF37]" />
+              <Activity className="w-5 h-5 text-[#3B8595]" />
               <CardTitle className="text-black">Recent Activity</CardTitle>
             </div>
             <CardDescription className="text-gray-500">Latest actions and updates</CardDescription>
@@ -563,7 +572,7 @@ function DashboardView() {
                     activity.type === "email" && "bg-blue-100 text-blue-600",
                     activity.type === "call" && "bg-emerald-100 text-emerald-600",
                     activity.type === "meeting" && "bg-purple-100 text-purple-600",
-                    activity.type === "ai_analysis" && "bg-[#D4AF37]/20 text-[#D4AF37]",
+                    activity.type === "ai_analysis" && "bg-[#3B8595]/20 text-[#3B8595]",
                   )}>
                     {activity.type === "email" && <Mail className="w-4 h-4" />}
                     {activity.type === "call" && <Phone className="w-4 h-4" />}
@@ -585,10 +594,10 @@ function DashboardView() {
       </div>
 
       {myDay && (
-        <Card className="bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Bot className="w-5 h-5 text-[#D4AF37]" />
+              <Bot className="w-5 h-5 text-[#3B8595]" />
               <CardTitle className="text-black">AI Daily Assistant</CardTitle>
             </div>
             <CardDescription className="text-gray-500">{myDay.summary}</CardDescription>
@@ -598,7 +607,7 @@ function DashboardView() {
               <h4 className="text-sm font-semibold text-black mb-3">Priority Leads to Call</h4>
               <div className="space-y-2">
                 {myDay.leadsToCall.slice(0, 5).map((lead) => (
-                  <div key={lead.id} className="p-3 bg-[#F8F4E8] rounded-lg border border-[#E8E4D9]">
+                  <div key={lead.id} className="p-3 bg-[#F5F1EA] rounded-lg border border-[#E2DDD4]">
                     <p className="text-sm font-medium text-black">{lead.name}</p>
                     <p className="text-xs text-gray-500">{lead.company || 'Unknown company'}</p>
                     <div className="flex items-center justify-between mt-2">
@@ -613,11 +622,11 @@ function DashboardView() {
               <h4 className="text-sm font-semibold text-black mb-3">Upcoming Meetings</h4>
               <div className="space-y-2">
                 {myDay.meetings.length === 0 ? (
-                  <div className="p-3 bg-[#F8F4E8] rounded-lg border border-[#E8E4D9] text-sm text-gray-500">
+                  <div className="p-3 bg-[#F5F1EA] rounded-lg border border-[#E2DDD4] text-sm text-gray-500">
                     No meetings queued yet.
                   </div>
                 ) : myDay.meetings.slice(0, 5).map((meeting) => (
-                  <div key={meeting.id} className="p-3 bg-[#F8F4E8] rounded-lg border border-[#E8E4D9]">
+                  <div key={meeting.id} className="p-3 bg-[#F5F1EA] rounded-lg border border-[#E2DDD4]">
                     <p className="text-sm font-medium text-black">{meeting.title}</p>
                     <p className="text-xs text-gray-500">{meeting.lead?.name || 'Unassigned lead'}</p>
                     <p className="text-xs text-gray-500 mt-1">{new Date(meeting.time).toLocaleString()}</p>
@@ -859,7 +868,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
     })
 
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       {/* Header with Add new lead + Import CSV on tab */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -869,7 +878,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
-            className="border-[#0A0A0A] text-[#0A0A0A] hover:bg-black/5 gap-2"
+            className="border-[#1E293B] text-[#1E293B] hover:bg-black/5 gap-2"
             onClick={onScrape}
           >
             <Globe className="w-4 h-4" />
@@ -877,7 +886,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
           </Button>
           <Button 
             variant="outline" 
-            className="border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37]/10 gap-2"
+            className="border-[#3B8595] text-[#3B8595] hover:bg-[#3B8595]/10 gap-2"
             onClick={onUploadCSV}
           >
             <Upload className="w-4 h-4" />
@@ -895,10 +904,10 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-gray-400" />
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-[140px] bg-white border-[#E8E4D9]">
+            <SelectTrigger className="w-[140px] bg-white border-[#E2DDD4]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
-            <SelectContent className="bg-white border-[#E8E4D9]">
+            <SelectContent className="bg-white border-[#E2DDD4]">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="new">New</SelectItem>
               <SelectItem value="qualified">Qualified</SelectItem>
@@ -909,10 +918,10 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
           </Select>
         </div>
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[140px] bg-white border-[#E8E4D9]">
+          <SelectTrigger className="w-[140px] bg-white border-[#E2DDD4]">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
-          <SelectContent className="bg-white border-[#E8E4D9]">
+          <SelectContent className="bg-white border-[#E2DDD4]">
             <SelectItem value="score">AI Score</SelectItem>
             <SelectItem value="value">Value</SelectItem>
             <SelectItem value="date">Date Added</SelectItem>
@@ -921,7 +930,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
       </div>
       
       {/* Leads Table */}
-      <Card className="bg-white border-[#E8E4D9] shadow-sm overflow-hidden">
+      <Card className="bg-white border-[#E2DDD4] shadow-sm overflow-hidden">
         {error && (
           <div className="p-4 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm">{error}</div>
         )}
@@ -931,7 +940,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
           <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-[#E8E4D9] bg-[#F8F4E8]">
+              <tr className="border-b border-[#E2DDD4] bg-[#F5F1EA]">
                 <th className="text-left p-4 text-sm font-medium text-gray-600">Contact</th>
                 <th className="text-left p-4 text-sm font-medium text-gray-600">Company</th>
                 <th className="text-left p-4 text-sm font-medium text-gray-600">Source</th>
@@ -950,13 +959,13 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                   key={lead.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="border-b border-[#E8E4D9] hover:bg-[#FEFCF6] transition-colors cursor-pointer"
+                  className="border-b border-[#E2DDD4] hover:bg-[#FDFBF7] transition-colors cursor-pointer"
                   onClick={() => setSelectedLead(lead)}
                 >
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <Avatar className="w-9 h-9">
-                        <AvatarFallback className="bg-[#D4AF37] text-black text-sm font-medium">
+                        <AvatarFallback className="bg-[#3B8595] text-black text-sm font-medium">
                           {lead.firstName?.[0]}{lead.lastName?.[0]}
                         </AvatarFallback>
                       </Avatar>
@@ -971,7 +980,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                     <p className="text-xs text-gray-500">{lead.title}</p>
                   </td>
                   <td className="p-4">
-                    <Badge variant="outline" className="capitalize border-[#E8E4D9] text-gray-600">
+                    <Badge variant="outline" className="capitalize border-[#E2DDD4] text-gray-600">
                       {lead.source}
                     </Badge>
                   </td>
@@ -999,7 +1008,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-[#D4AF37] hover:bg-[#D4AF37]/10"
+                        className="text-[#3B8595] hover:bg-[#3B8595]/10"
                         onClick={(e) => {
                           e.stopPropagation()
                           void rescoreLead(lead.id)
@@ -1050,7 +1059,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
           setAssistantSaving(false)
         }}
       >
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-2xl">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-2xl">
           {selectedLead && (
             <>
               <DialogHeader>
@@ -1094,7 +1103,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                   </div>
                   <div>
                     <Label className="text-gray-500 text-xs">AI Recommended Action</Label>
-                    <p className="text-[#D4AF37]">{selectedLead.aiNextAction}</p>
+                    <p className="text-[#3B8595]">{selectedLead.aiNextAction}</p>
                   </div>
                   <div>
                     <Label className="text-gray-500 text-xs">Status</Label>
@@ -1105,10 +1114,10 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                 </div>
               </div>
 
-              <Card className="bg-[#FEFCF6] border-[#E8E4D9]">
+              <Card className="bg-[#FDFBF7] border-[#E2DDD4]">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2 text-black">
-                    <Bot className="w-4 h-4 text-[#D4AF37]" />
+                    <Bot className="w-4 h-4 text-[#3B8595]" />
                     AI Carrier Assistant
                   </CardTitle>
                   <CardDescription>
@@ -1135,13 +1144,13 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                       )}
                     </Button>
                     {assistantSource && (
-                      <Badge variant="outline" className="border-[#E8E4D9] text-gray-600 capitalize">
+                      <Badge variant="outline" className="border-[#E2DDD4] text-gray-600 capitalize">
                         Source: {assistantSource}
                       </Badge>
                     )}
                     <Button
                       variant="outline"
-                      className="border-[#E8E4D9] text-gray-700 hover:bg-[#F8F4E8]"
+                      className="border-[#E2DDD4] text-gray-700 hover:bg-[#F5F1EA]"
                       disabled={!assistantPlaybook || assistantSaving}
                       onClick={() => void savePlaybookToTimeline(selectedLead.id)}
                     >
@@ -1151,7 +1160,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
 
                   {assistantPlaybook && (
                     <div className="space-y-4">
-                      <div className="rounded-lg border border-[#E8E4D9] bg-white p-4">
+                      <div className="rounded-lg border border-[#E2DDD4] bg-white p-4">
                         <p className="text-xs text-gray-500">Recommended Carrier</p>
                         <p className="text-sm font-semibold text-black mt-1">
                           {assistantPlaybook.recommendedCarrier.name}
@@ -1160,7 +1169,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                           </span>
                         </p>
                         <p className="text-sm text-gray-600 mt-2">{assistantPlaybook.recommendedCarrier.rationale}</p>
-                        <p className="text-sm text-[#D4AF37] mt-2">
+                        <p className="text-sm text-[#3B8595] mt-2">
                           Plan suggestion: {assistantPlaybook.suggestedPlanType}
                         </p>
                       </div>
@@ -1170,7 +1179,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                           <p className="text-xs text-gray-500 mb-2">Backup Carriers</p>
                           <div className="space-y-2">
                             {assistantPlaybook.backupCarriers.map((carrier, idx) => (
-                              <div key={`${carrier.name}-${idx}`} className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                              <div key={`${carrier.name}-${idx}`} className="rounded-lg border border-[#E2DDD4] bg-white p-3">
                                 <p className="text-sm font-medium text-black">{carrier.name}</p>
                                 <p className="text-xs text-gray-600 mt-1">{carrier.rationale}</p>
                               </div>
@@ -1180,7 +1189,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                       )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                        <div className="rounded-lg border border-[#E2DDD4] bg-white p-3">
                           <p className="text-xs text-gray-500 mb-2">Qualification Summary</p>
                           <ul className="text-sm text-gray-700 space-y-1">
                             {assistantPlaybook.qualificationSummary.map((item, idx) => (
@@ -1188,7 +1197,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                             ))}
                           </ul>
                         </div>
-                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3">
+                        <div className="rounded-lg border border-[#E2DDD4] bg-white p-3">
                           <p className="text-xs text-gray-500 mb-2">Objection Handling</p>
                           <ul className="text-sm text-gray-700 space-y-1">
                             {assistantPlaybook.objectionHandling.map((item, idx) => (
@@ -1198,7 +1207,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-[#E8E4D9] bg-white p-3 space-y-2">
+                      <div className="rounded-lg border border-[#E2DDD4] bg-white p-3 space-y-2">
                         <p className="text-xs text-gray-500">Follow-up Scripts</p>
                         <p className="text-sm text-gray-700"><span className="font-medium text-black">Call opening:</span> {assistantPlaybook.followUpScripts.callOpening}</p>
                         <p className="text-sm text-gray-700"><span className="font-medium text-black">SMS:</span> {assistantPlaybook.followUpScripts.sms}</p>
@@ -1207,10 +1216,10 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
                       </div>
 
                       {assistantPlaybook.citations?.length > 0 && (
-                        <div className="rounded-lg border border-[#E8E4D9] bg-white p-3 space-y-2">
+                        <div className="rounded-lg border border-[#E2DDD4] bg-white p-3 space-y-2">
                           <p className="text-xs text-gray-500">Grounding Citations</p>
                           {assistantPlaybook.citations.slice(0, 4).map((c, idx) => (
-                            <div key={`${c.documentId}-${c.chunkIndex}-${idx}`} className="rounded border border-[#F2EEE1] bg-[#FEFCF6] p-2">
+                            <div key={`${c.documentId}-${c.chunkIndex}-${idx}`} className="rounded border border-[#E2DDD4] bg-[#FDFBF7] p-2">
                               <p className="text-xs font-medium text-black">
                                 {c.carrierName} - {c.documentName} (chunk {c.chunkIndex})
                               </p>
@@ -1225,7 +1234,7 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
               </Card>
               
               <div className="flex justify-end gap-3">
-                <Button variant="outline" className="border-[#E8E4D9] text-black hover:bg-[#F8F4E8]">
+                <Button variant="outline" className="border-[#E2DDD4] text-black hover:bg-[#F5F1EA]">
                   <Edit className="w-4 h-4 mr-2" />
                   Edit
                 </Button>
@@ -1271,15 +1280,16 @@ function LeadsView({ onAddLead, onUploadCSV, onScrape, refreshKey = 0 }: { onAdd
 function SortableItem({ item }: { item: PipelineItem }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   
-  const style = {
+  const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+    touchAction: 'none',
   }
   
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className="bg-white border-[#E8E4D9] hover:border-[#D4AF37] cursor-grab active:cursor-grabbing mb-2 shadow-sm">
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="select-none">
+      <Card className="bg-white border-[#E2DDD4] hover:border-[#3B8595] cursor-grab active:cursor-grabbing mb-2 shadow-sm">
         <CardContent className="p-3">
           <div className="flex items-start justify-between mb-2">
             <h4 className="text-sm font-medium text-black truncate flex-1">{item.title}</h4>
@@ -1291,13 +1301,13 @@ function SortableItem({ item }: { item: PipelineItem }) {
           
           <div className="flex items-center justify-between">
             {item.aiWinProbability && (
-              <Badge variant="outline" className="text-xs border-[#D4AF37]/50 text-[#D4AF37]">
+              <Badge variant="outline" className="text-xs border-[#3B8595]/50 text-[#3B8595]">
                 {Math.round(item.aiWinProbability * 100)}% win
               </Badge>
             )}
             {item.lead && (
               <Avatar className="w-6 h-6">
-                <AvatarFallback className="bg-[#D4AF37] text-black text-xs">
+                <AvatarFallback className="bg-[#3B8595] text-black text-xs">
                   {item.lead.firstName?.[0]}{item.lead.lastName?.[0]}
                 </AvatarFallback>
               </Avatar>
@@ -1309,20 +1319,134 @@ function SortableItem({ item }: { item: PipelineItem }) {
   )
 }
 
+function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+  return (
+    <div ref={setNodeRef} className={cn("min-h-[120px] p-2 transition-colors", isOver && "bg-[#3B8595]/5 rounded-md")}>
+      {children}
+    </div>
+  )
+}
+
 function PipelineView() {
   const [stages, setStages] = useState(mockPipelineStages)
-  
+  const [loading, setLoading] = useState(true)
+  const [activeItemId, setActiveItemId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/pipeline')
+      .then((r) => {
+        if (!r.ok) throw new Error(`Pipeline fetch failed (${r.status})`)
+        return r.json()
+      })
+      .then((data) => {
+        if (data.pipeline?.stages && data.pipeline.stages.length > 0) {
+          const mapped = data.pipeline.stages.map((s: { id: string; name: string; color: string; order: number; items: Array<{ id: string; title: string; value: number | null; probability: number | null; stageId: string; leadId: string | null; lead: Lead | null; expectedClose: string | null }> }) => ({
+            id: s.id,
+            name: s.name,
+            color: s.color || '#6B7280',
+            order: s.order,
+            items: (s.items || []).map((item: { id: string; title: string; value: number | null; probability: number | null; stageId: string; leadId: string | null; lead: Lead | null; expectedClose: string | null }) => ({
+              id: item.id,
+              title: item.title,
+              value: item.value,
+              probability: item.probability,
+              stageId: item.stageId || s.id,
+              leadId: item.leadId,
+              lead: item.lead,
+              aiWinProbability: item.probability ? item.probability / 100 : null,
+              expectedClose: item.expectedClose,
+            })),
+          }))
+          setStages(mapped)
+        }
+      })
+      .catch((err) => {
+        console.error('Pipeline load error:', err)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
+
+  const findStageByItemId = useCallback((itemId: string) => {
+    return stages.find((s) => s.items.some((i) => i.id === itemId))
+  }, [stages])
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event
+    if (!over) return
+
+    const activeId = String(active.id)
+    const overId = String(over.id)
+
+    const sourceStage = findStageByItemId(activeId)
+    if (!sourceStage) return
+
+    const isOverStage = stages.some((s) => s.id === overId)
+    const overStage = isOverStage
+      ? stages.find((s) => s.id === overId)
+      : findStageByItemId(overId)
+
+    if (!overStage || sourceStage.id === overStage.id) return
+
+    setStages((prev) => {
+      const item = prev.find((s) => s.id === sourceStage.id)?.items.find((i) => i.id === activeId)
+      if (!item) return prev
+
+      return prev.map((stage) => {
+        if (stage.id === sourceStage.id) {
+          return { ...stage, items: stage.items.filter((i) => i.id !== activeId) }
+        }
+        if (stage.id === overStage.id) {
+          const alreadyExists = stage.items.some((i) => i.id === activeId)
+          if (alreadyExists) return stage
+          return { ...stage, items: [...stage.items, { ...item, stageId: overStage.id }] }
+        }
+        return stage
+      })
+    })
+  }, [findStageByItemId, stages])
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    setActiveItemId(null)
+    if (!over) return
+
+    const activeId = String(active.id)
+    const overId = String(over.id)
+
+    const isOverColumn = stages.some((s) => s.id === overId)
+    const targetStage = isOverColumn
+      ? stages.find((s) => s.id === overId)
+      : stages.find((s) => s.items.some((i) => i.id === overId))
+    if (!targetStage) return
+
+    const snapshotBeforeDrag = stages
+
+    fetch('/api/pipeline', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId: activeId, stageId: targetStage.id, position: 0 }),
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to save')
+      })
+      .catch(() => {
+        setStages(snapshotBeforeDrag)
+        toast({ title: 'Move failed', description: 'Could not save the stage change. Reverted.', variant: 'destructive' })
+      })
+  }, [stages])
   
   const totalValue = stages.reduce((sum, stage) => 
     sum + stage.items.reduce((s, item) => s + (item.value || 0), 0), 0
   )
   
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1330,9 +1454,9 @@ function PipelineView() {
           <p className="text-gray-500">Drag and drop deals through your sales stages</p>
         </div>
         <div className="flex items-center gap-4">
-          <Card className="bg-white border-[#E8E4D9] px-4 py-2 shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] px-4 py-2 shadow-sm">
             <div className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-[#D4AF37]" />
+              <DollarSign className="w-4 h-4 text-[#3B8595]" />
               <span className="text-lg font-semibold text-black">${totalValue.toLocaleString()}</span>
               <span className="text-sm text-gray-500">total</span>
             </div>
@@ -1345,32 +1469,38 @@ function PipelineView() {
       </div>
       
       {/* Kanban Board */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={() => {}}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={(e) => setActiveItemId(String(e.active.id))}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => (
             <div
               key={stage.id}
-              className="shrink-0 w-[300px] bg-white rounded-lg border border-[#E8E4D9] shadow-sm"
+              className="shrink-0 w-[300px] bg-white rounded-lg border border-[#E2DDD4] shadow-sm"
             >
               {/* Column Header */}
               <div
-                className="p-3 border-b border-[#E8E4D9] flex items-center justify-between"
+                className="p-3 border-b border-[#E2DDD4] flex items-center justify-between"
                 style={{ borderTopLeftRadius: 8, borderTopRightRadius: 8, borderTop: `3px solid ${stage.color}` }}
               >
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-black">{stage.name}</h3>
-                  <Badge variant="secondary" className="bg-[#F8F4E8] text-gray-600">
+                  <Badge variant="secondary" className="bg-[#F5F1EA] text-gray-600">
                     {stage.items.length}
                   </Badge>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-400 hover:text-[#D4AF37]">
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-400 hover:text-[#3B8595]">
                   <Plus className="w-3 h-3" />
                 </Button>
               </div>
               
               {/* Column Content */}
-              <ScrollArea className="h-[calc(100vh-320px)]">
-                <div className="p-2">
+              <div className="overflow-y-auto h-[calc(100vh-320px)]">
+                <DroppableColumn id={stage.id}>
                   <SortableContext items={stage.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
                     {stage.items.map((item) => (
                       <SortableItem key={item.id} item={item} />
@@ -1382,8 +1512,8 @@ function PipelineView() {
                       No deals in this stage
                     </div>
                   )}
-                </div>
-              </ScrollArea>
+                </DroppableColumn>
+              </div>
             </div>
           ))}
         </div>
@@ -1472,7 +1602,7 @@ function UploadsView({ onUploadCSV, refreshKey = 0 }: { onUploadCSV: () => void;
   }, [refreshKey])
 
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       {/* Header with Upload NEW CSV on tab */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1500,9 +1630,9 @@ function UploadsView({ onUploadCSV, refreshKey = 0 }: { onUploadCSV: () => void;
       )}
 
       {!loading && !error && uploads.length === 0 && (
-        <Card className="bg-white border-[#E8E4D9]">
+        <Card className="bg-white border-[#E2DDD4]">
           <CardContent className="p-12 text-center">
-            <FileSpreadsheet className="w-12 h-12 text-[#D4AF37]/60 mx-auto mb-4" />
+            <FileSpreadsheet className="w-12 h-12 text-[#3B8595]/60 mx-auto mb-4" />
             <p className="text-gray-600">No uploads yet. Import leads from a CSV to see history here.</p>
             <Button className="btn-gold mt-4 gap-2" onClick={onUploadCSV}>
               <Upload className="w-4 h-4" />
@@ -1516,12 +1646,12 @@ function UploadsView({ onUploadCSV, refreshKey = 0 }: { onUploadCSV: () => void;
       {!loading && uploads.length > 0 && (
       <div className="space-y-4">
         {uploads.map((upload) => (
-          <Card key={upload.id} className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card key={upload.id} className="bg-white border-[#E2DDD4] shadow-sm">
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-[#D4AF37]/20 flex items-center justify-center">
-                    <FileSpreadsheet className="w-6 h-6 text-[#D4AF37]" />
+                  <div className="w-12 h-12 rounded-lg bg-[#3B8595]/20 flex items-center justify-center">
+                    <FileSpreadsheet className="w-6 h-6 text-[#3B8595]" />
                   </div>
                   <div>
                     <h3 className="text-sm font-medium text-black">{upload.fileName}</h3>
@@ -1532,7 +1662,7 @@ function UploadsView({ onUploadCSV, refreshKey = 0 }: { onUploadCSV: () => void;
                       <span className="text-xs text-gray-500">{(upload.fileSize / 1024).toFixed(1)} KB</span>
                       <span className="text-xs text-gray-500">{upload.totalRows} rows</span>
                       {upload.aiAutoScored && (
-                        <Badge variant="outline" className="text-xs border-[#D4AF37]/50 text-[#D4AF37]">
+                        <Badge variant="outline" className="text-xs border-[#3B8595]/50 text-[#3B8595]">
                           <Sparkles className="w-3 h-3 mr-1" />
                           AI Scored
                         </Badge>
@@ -1648,22 +1778,22 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
 
   if (!configured) {
     return (
-      <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+      <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
         <div>
           <h1 className="text-2xl font-bold text-black">Linear Integration</h1>
           <p className="text-gray-500">Connect your Linear workspace to sync issues</p>
         </div>
-        <Card className="bg-white border-[#E8E4D9] shadow-sm">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
           <CardContent className="p-8 text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-[#5E6AD2]/10 flex items-center justify-center mx-auto">
               <SquareKanban className="w-8 h-8 text-[#5E6AD2]" />
             </div>
             <h3 className="text-lg font-semibold text-black">Linear Not Connected</h3>
             <p className="text-gray-500 max-w-md mx-auto">
-              Add your Linear API key to the <code className="bg-[#F8F4E8] px-1.5 py-0.5 rounded text-sm">.env</code> file to enable the integration.
+              Add your Linear API key to the <code className="bg-[#F5F1EA] px-1.5 py-0.5 rounded text-sm">.env</code> file to enable the integration.
               Get your key from <a href="https://linear.app/settings/api" target="_blank" rel="noopener noreferrer" className="text-[#5E6AD2] underline">Linear Settings &rarr; API</a>.
             </p>
-            <div className="bg-[#F8F4E8] rounded-lg p-4 text-left max-w-sm mx-auto">
+            <div className="bg-[#F5F1EA] rounded-lg p-4 text-left max-w-sm mx-auto">
               <p className="text-xs text-gray-500 mb-1">Add to your .env file:</p>
               <code className="text-sm text-black">LINEAR_API_KEY=&quot;lin_api_...&quot;</code>
             </div>
@@ -1674,7 +1804,7 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-black flex items-center gap-2">
@@ -1686,7 +1816,7 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
-            className="border-[#E8E4D9] text-gray-600 hover:bg-[#F8F4E8] gap-2"
+            className="border-[#E2DDD4] text-gray-600 hover:bg-[#F5F1EA] gap-2"
             onClick={fetchData}
             disabled={loading}
           >
@@ -1708,7 +1838,7 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
           { title: "Urgent/High", value: issues.filter(i => i.priority <= 2 && i.priority > 0).length, icon: AlertTriangle, color: "#DC2626" },
           { title: "Teams", value: teams.length, icon: Users, color: "#059669" },
         ].map((stat) => (
-          <Card key={stat.title} className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card key={stat.title} className="bg-white border-[#E2DDD4] shadow-sm">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${stat.color}15` }}>
@@ -1729,10 +1859,10 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-gray-400" />
           <Select value={selectedTeam} onValueChange={setSelectedTeam}>
-            <SelectTrigger className="w-[180px] bg-white border-[#E8E4D9]">
+            <SelectTrigger className="w-[180px] bg-white border-[#E2DDD4]">
               <SelectValue placeholder="Filter by team" />
             </SelectTrigger>
-            <SelectContent className="bg-white border-[#E8E4D9]">
+            <SelectContent className="bg-white border-[#E2DDD4]">
               <SelectItem value="all">All Teams</SelectItem>
               {teams.map((t) => (
                 <SelectItem key={t.id} value={t.id}>{t.name} ({t.key})</SelectItem>
@@ -1749,14 +1879,14 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
         </Card>
       )}
 
-      <Card className="bg-white border-[#E8E4D9] shadow-sm overflow-hidden">
+      <Card className="bg-white border-[#E2DDD4] shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading issues from Linear...</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#E8E4D9] bg-[#F8F4E8]">
+                <tr className="border-b border-[#E2DDD4] bg-[#F5F1EA]">
                   <th className="text-left p-4 text-sm font-medium text-gray-600">Issue</th>
                   <th className="text-left p-4 text-sm font-medium text-gray-600">Status</th>
                   <th className="text-left p-4 text-sm font-medium text-gray-600">Priority</th>
@@ -1781,7 +1911,7 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
                         key={issue.id}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        className="border-b border-[#E8E4D9] hover:bg-[#FEFCF6] transition-colors cursor-pointer"
+                        className="border-b border-[#E2DDD4] hover:bg-[#FDFBF7] transition-colors cursor-pointer"
                         onClick={() => setSelectedIssue(issue)}
                       >
                         <td className="p-4">
@@ -1789,7 +1919,7 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
                             <div className="flex items-center gap-2">
                               <span className="text-xs font-mono text-gray-400">{issue.identifier}</span>
                               {issue.team && (
-                                <Badge variant="outline" className="text-xs border-[#E8E4D9] text-gray-500">{issue.team.key}</Badge>
+                                <Badge variant="outline" className="text-xs border-[#E2DDD4] text-gray-500">{issue.team.key}</Badge>
                               )}
                             </div>
                             <p className="text-sm font-medium text-black mt-0.5 max-w-[300px] truncate">{issue.title}</p>
@@ -1863,14 +1993,14 @@ function LinearView({ onCreateIssue }: { onCreateIssue: () => void }) {
 
       {/* Issue detail modal */}
       <Dialog open={!!selectedIssue} onOpenChange={() => setSelectedIssue(null)}>
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-2xl">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-2xl">
           {selectedIssue && (
             <>
               <DialogHeader>
                 <div className="flex items-center gap-2 text-sm text-gray-400 font-mono">
                   {selectedIssue.identifier}
                   {selectedIssue.team && (
-                    <Badge variant="outline" className="text-xs border-[#E8E4D9]">{selectedIssue.team.name}</Badge>
+                    <Badge variant="outline" className="text-xs border-[#E2DDD4]">{selectedIssue.team.name}</Badge>
                   )}
                 </div>
                 <DialogTitle className="text-xl text-black">{selectedIssue.title}</DialogTitle>
@@ -2011,7 +2141,7 @@ function CreateLinearIssueDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white border-[#E8E4D9] max-w-lg">
+      <DialogContent className="bg-white border-[#E2DDD4] max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-black flex items-center gap-2">
             <SquareKanban className="w-5 h-5 text-[#5E6AD2]" />
@@ -2028,7 +2158,7 @@ function CreateLinearIssueDialog({
               <div className="mt-1 text-sm text-gray-400">Loading teams...</div>
             ) : (
               <Select value={form.teamId} onValueChange={(v) => setForm((f) => ({ ...f, teamId: v }))}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]">
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]">
                   <SelectValue placeholder="Select a team" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2042,7 +2172,7 @@ function CreateLinearIssueDialog({
           <div>
             <Label className="text-gray-600">Title</Label>
             <Input
-              className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"
+              className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               placeholder="Issue title"
@@ -2052,7 +2182,7 @@ function CreateLinearIssueDialog({
           <div>
             <Label className="text-gray-600">Description</Label>
             <Textarea
-              className="mt-1 bg-[#F8F4E8] border-[#E8E4D9] min-h-[80px]"
+              className="mt-1 bg-[#F5F1EA] border-[#E2DDD4] min-h-[80px]"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="Optional description..."
@@ -2061,7 +2191,7 @@ function CreateLinearIssueDialog({
           <div>
             <Label className="text-gray-600">Priority</Label>
             <Select value={String(form.priority)} onValueChange={(v) => setForm((f) => ({ ...f, priority: parseInt(v) }))}>
-              <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]">
+              <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2074,7 +2204,7 @@ function CreateLinearIssueDialog({
             </Select>
           </div>
           <DialogFooter className="gap-2 pt-4">
-            <Button type="button" variant="outline" className="border-[#E8E4D9]" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="button" variant="outline" className="border-[#E2DDD4]" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" className="bg-[#5E6AD2] hover:bg-[#4C56B8] text-white" disabled={saving || !form.teamId}>
               {saving ? "Creating..." : "Create Issue"}
             </Button>
@@ -2086,45 +2216,6 @@ function CreateLinearIssueDialog({
 }
 
 // Placeholder views for other sections
-function AutomationView() {
-  return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-black">AI Automation</h1>
-          <p className="text-gray-500">Automate your workflows with intelligent triggers</p>
-        </div>
-        <Button className="btn-gold gap-2">
-          <Plus className="w-4 h-4" />
-          Create Automation
-        </Button>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { title: "Active Automations", value: 12, icon: Zap },
-          { title: "Runs This Month", value: 1234, icon: Activity },
-          { title: "AI Accuracy", value: "94%", icon: Brain },
-        ].map((stat) => (
-          <Card key={stat.title} className="bg-white border-[#E8E4D9] shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#D4AF37]/20 flex items-center justify-center">
-                  <stat.icon className="w-5 h-5 text-[#D4AF37]" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-black">{stat.value}</p>
-                  <p className="text-sm text-gray-500">{stat.title}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function SocialMediaView() {
   type QueueItem = {
     id: string
@@ -2344,14 +2435,14 @@ function SocialMediaView() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-black">Social Media</h1>
           <p className="text-gray-500">Elite AI content studio with queue, scheduling, and media prompt generation</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="border-[#D4AF37] text-[#D4AF37] gap-2" onClick={() => setShowMediaDialog(true)}>
+          <Button variant="outline" className="border-[#3B8595] text-[#3B8595] gap-2" onClick={() => setShowMediaDialog(true)}>
             <ImageIcon className="w-4 h-4" />
             Generate Media
           </Button>
@@ -2369,17 +2460,17 @@ function SocialMediaView() {
             whileTap={{ scale: 0.99 }}
             type="button"
             onClick={() => applyCampaignPack(pack)}
-            className="text-left p-4 bg-white border border-[#E8E4D9] rounded-xl shadow-sm hover:shadow-md transition-shadow"
+            className="text-left p-4 bg-white border border-[#E2DDD4] rounded-xl shadow-sm hover:shadow-md transition-shadow"
           >
             <p className="text-sm font-semibold text-black">{pack.label}</p>
             <p className="text-xs text-gray-500 mt-1">{pack.topic}</p>
-            <p className="text-xs text-[#8B7355] mt-2">CTA: {pack.cta}</p>
+            <p className="text-xs text-[#7C3AED] mt-2">CTA: {pack.cta}</p>
           </motion.button>
         ))}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="bg-white border-[#E8E4D9] shadow-sm xl:col-span-1">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm xl:col-span-1">
           <CardHeader>
             <CardTitle className="text-black text-lg">Manual Composer</CardTitle>
             <CardDescription>Create, draft, and schedule premium brand posts.</CardDescription>
@@ -2388,7 +2479,7 @@ function SocialMediaView() {
             <div>
               <Label className="text-gray-600">Platform</Label>
               <Select value={composerPlatform} onValueChange={setComposerPlatform}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="linkedin">LinkedIn</SelectItem>
                   <SelectItem value="twitter">Twitter/X</SelectItem>
@@ -2399,20 +2490,20 @@ function SocialMediaView() {
             </div>
             <div>
               <Label className="text-gray-600">Title</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={composerTitle} onChange={(e) => setComposerTitle(e.target.value)} placeholder="Post title (optional)" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={composerTitle} onChange={(e) => setComposerTitle(e.target.value)} placeholder="Post title (optional)" />
             </div>
             <div>
               <Label className="text-gray-600">Post content</Label>
-              <Textarea className="mt-1 min-h-28 bg-[#F8F4E8] border-[#E8E4D9]" value={composerContent} onChange={(e) => setComposerContent(e.target.value)} placeholder="Write a high-converting post..." />
+              <Textarea className="mt-1 min-h-28 bg-[#F5F1EA] border-[#E2DDD4]" value={composerContent} onChange={(e) => setComposerContent(e.target.value)} placeholder="Write a high-converting post..." />
             </div>
             <div>
               <Label className="text-gray-600">Schedule (optional)</Label>
-              <Input type="datetime-local" className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={composerScheduleAt} onChange={(e) => setComposerScheduleAt(e.target.value)} />
+              <Input type="datetime-local" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={composerScheduleAt} onChange={(e) => setComposerScheduleAt(e.target.value)} />
             </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                className="flex-1 border-[#E8E4D9]"
+                className="flex-1 border-[#E2DDD4]"
                 onClick={() => void saveContent({ title: composerTitle, content: composerContent, platform: composerPlatform, status: 'draft' })}
                 disabled={saving}
               >
@@ -2429,7 +2520,7 @@ function SocialMediaView() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-[#E8E4D9] shadow-sm xl:col-span-2">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm xl:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -2437,7 +2528,7 @@ function SocialMediaView() {
                 <CardDescription>Manage drafts, scheduled posts, and published content.</CardDescription>
               </div>
               <Select value={platformFilter} onValueChange={setPlatformFilter}>
-                <SelectTrigger className="w-[180px] bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[180px] bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All platforms</SelectItem>
                   <SelectItem value="linkedin">LinkedIn</SelectItem>
@@ -2452,7 +2543,7 @@ function SocialMediaView() {
             {loading ? (
               <div className="py-10 text-center text-gray-500">Loading queue...</div>
             ) : filteredItems.length === 0 ? (
-              <div className="py-10 text-center text-gray-500 border border-dashed border-[#E8E4D9] rounded-lg">
+              <div className="py-10 text-center text-gray-500 border border-dashed border-[#E2DDD4] rounded-lg">
                 No posts yet. Generate with AI or create your first draft.
               </div>
             ) : filteredItems.map((item) => (
@@ -2461,12 +2552,12 @@ function SocialMediaView() {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 whileHover={{ y: -1 }}
-                className="p-4 bg-[#F8F4E8] border border-[#E8E4D9] rounded-lg"
+                className="p-4 bg-[#F5F1EA] border border-[#E2DDD4] rounded-lg"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="capitalize border-[#D4AF37]/60 text-[#8B7355]">{item.platform}</Badge>
+                      <Badge variant="outline" className="capitalize border-[#3B8595]/60 text-[#7C3AED]">{item.platform}</Badge>
                       <Badge variant="outline" className={cn(
                         item.status === 'published' && 'border-emerald-500 text-emerald-600',
                         item.status === 'scheduled' && 'border-blue-500 text-blue-600',
@@ -2485,7 +2576,7 @@ function SocialMediaView() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="border-[#E8E4D9]"
+                        className="border-[#E2DDD4]"
                         onClick={() => void fetch(`/api/content?id=${item.id}`, {
                           method: 'PATCH',
                           headers: { 'Content-Type': 'application/json' },
@@ -2507,20 +2598,20 @@ function SocialMediaView() {
       </div>
 
       <Dialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog}>
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-2xl">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="text-black flex items-center gap-2"><Sparkles className="w-5 h-5 text-[#D4AF37]" />Generate Social Content</DialogTitle>
+            <DialogTitle className="text-black flex items-center gap-2"><Sparkles className="w-5 h-5 text-[#3B8595]" />Generate Social Content</DialogTitle>
             <DialogDescription>Create premium content with AI and save directly to queue.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-3">
               <Label className="text-gray-600">Topic</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Life insurance myths families should stop believing" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Life insurance myths families should stop believing" />
             </div>
             <div>
               <Label className="text-gray-600">Platform</Label>
               <Select value={platform} onValueChange={setPlatform}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="linkedin">LinkedIn</SelectItem>
                   <SelectItem value="twitter">Twitter/X</SelectItem>
@@ -2532,7 +2623,7 @@ function SocialMediaView() {
             <div>
               <Label className="text-gray-600">Tone</Label>
               <Select value={tone} onValueChange={setTone}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="professional">Professional</SelectItem>
                   <SelectItem value="authoritative">Authoritative</SelectItem>
@@ -2551,15 +2642,15 @@ function SocialMediaView() {
           <div className="space-y-3">
             <div>
               <Label className="text-gray-600">Generated title</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={generatedTitle} onChange={(e) => setGeneratedTitle(e.target.value)} />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={generatedTitle} onChange={(e) => setGeneratedTitle(e.target.value)} />
             </div>
             <div>
               <Label className="text-gray-600">Generated content</Label>
-              <Textarea className="mt-1 min-h-32 bg-[#F8F4E8] border-[#E8E4D9]" value={generatedContent} onChange={(e) => setGeneratedContent(e.target.value)} />
+              <Textarea className="mt-1 min-h-32 bg-[#F5F1EA] border-[#E2DDD4]" value={generatedContent} onChange={(e) => setGeneratedContent(e.target.value)} />
             </div>
             <div className="flex flex-wrap gap-2">
               {generatedHashtags.map((h) => (
-                <Badge key={h} variant="outline" className="border-[#E8E4D9]">{h}</Badge>
+                <Badge key={h} variant="outline" className="border-[#E2DDD4]">{h}</Badge>
               ))}
             </div>
             {bestTimeToPost && <p className="text-xs text-gray-500">Best time to post: {bestTimeToPost}</p>}
@@ -2567,7 +2658,7 @@ function SocialMediaView() {
           <DialogFooter className="flex gap-2">
             <Button
               variant="outline"
-              className="border-[#E8E4D9]"
+              className="border-[#E2DDD4]"
               onClick={() => void saveContent({ title: generatedTitle, content: generatedContent, platform, status: 'draft' })}
               disabled={saving}
             >
@@ -2585,20 +2676,20 @@ function SocialMediaView() {
       </Dialog>
 
       <Dialog open={showMediaDialog} onOpenChange={setShowMediaDialog}>
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-xl">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-black flex items-center gap-2"><ImageIcon className="w-5 h-5 text-[#D4AF37]" />Generate Media Prompt</DialogTitle>
+            <DialogTitle className="text-black flex items-center gap-2"><ImageIcon className="w-5 h-5 text-[#3B8595]" />Generate Media Prompt</DialogTitle>
             <DialogDescription>Create image prompts and caption/CTA for high-performing visuals.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <Label className="text-gray-600">Topic</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={mediaTopic} onChange={(e) => setMediaTopic(e.target.value)} placeholder="Family life insurance peace of mind visual" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={mediaTopic} onChange={(e) => setMediaTopic(e.target.value)} placeholder="Family life insurance peace of mind visual" />
             </div>
             <div>
               <Label className="text-gray-600">Platform</Label>
               <Select value={mediaPlatform} onValueChange={setMediaPlatform}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="linkedin">LinkedIn</SelectItem>
                   <SelectItem value="instagram">Instagram</SelectItem>
@@ -2612,15 +2703,15 @@ function SocialMediaView() {
             </Button>
             <div>
               <Label className="text-gray-600">Image prompt</Label>
-              <Textarea className="mt-1 min-h-24 bg-[#F8F4E8] border-[#E8E4D9]" value={mediaPrompt} onChange={(e) => setMediaPrompt(e.target.value)} />
+              <Textarea className="mt-1 min-h-24 bg-[#F5F1EA] border-[#E2DDD4]" value={mediaPrompt} onChange={(e) => setMediaPrompt(e.target.value)} />
             </div>
             <div>
               <Label className="text-gray-600">Caption</Label>
-              <Textarea className="mt-1 min-h-16 bg-[#F8F4E8] border-[#E8E4D9]" value={mediaCaption} onChange={(e) => setMediaCaption(e.target.value)} />
+              <Textarea className="mt-1 min-h-16 bg-[#F5F1EA] border-[#E2DDD4]" value={mediaCaption} onChange={(e) => setMediaCaption(e.target.value)} />
             </div>
             <div>
               <Label className="text-gray-600">CTA</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={mediaCta} onChange={(e) => setMediaCta(e.target.value)} />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={mediaCta} onChange={(e) => setMediaCta(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
@@ -2761,17 +2852,17 @@ function CarrierLibrarySettings() {
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <Card className="bg-white border-[#E8E4D9] shadow-sm">
+      <Card className="bg-white border-[#E2DDD4] shadow-sm">
         <CardHeader>
           <CardTitle className="text-black">Insurance Carriers</CardTitle>
           <CardDescription>Store life/health carriers and underwriting libraries.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input className="bg-[#F8F4E8] border-[#E8E4D9]" placeholder="Carrier name" value={newCarrierName} onChange={(e) => setNewCarrierName(e.target.value)} />
-          <Input className="bg-[#F8F4E8] border-[#E8E4D9]" placeholder="Website (optional)" value={newCarrierWebsite} onChange={(e) => setNewCarrierWebsite(e.target.value)} />
+          <Input className="bg-[#F5F1EA] border-[#E2DDD4]" placeholder="Carrier name" value={newCarrierName} onChange={(e) => setNewCarrierName(e.target.value)} />
+          <Input className="bg-[#F5F1EA] border-[#E2DDD4]" placeholder="Website (optional)" value={newCarrierWebsite} onChange={(e) => setNewCarrierWebsite(e.target.value)} />
           <Button className="btn-gold w-full" onClick={() => void createCarrier()} disabled={loading}>Add Carrier</Button>
           <Separator />
-          <div className="p-3 bg-[#F8F4E8] border border-[#E8E4D9] rounded-lg">
+          <div className="p-3 bg-[#F5F1EA] border border-[#E2DDD4] rounded-lg">
             <p className="text-xs font-medium text-black">Broker workflow shortcuts</p>
             <p className="text-xs text-gray-500 mt-1">Store each carrier’s brochure, underwriting guide, and app form with version tracking.</p>
           </div>
@@ -2783,7 +2874,7 @@ function CarrierLibrarySettings() {
                 onClick={() => setSelectedCarrierId(carrier.id)}
                 className={cn(
                   "w-full text-left p-3 rounded-lg border",
-                  selectedCarrierId === carrier.id ? "border-[#D4AF37] bg-[#D4AF37]/10" : "border-[#E8E4D9] bg-[#F8F4E8]"
+                  selectedCarrierId === carrier.id ? "border-[#3B8595] bg-[#3B8595]/10" : "border-[#E2DDD4] bg-[#F5F1EA]"
                 )}
               >
                 <p className="text-sm font-medium text-black">{carrier.name}</p>
@@ -2794,7 +2885,7 @@ function CarrierLibrarySettings() {
         </CardContent>
       </Card>
 
-      <Card className="bg-white border-[#E8E4D9] shadow-sm xl:col-span-2">
+      <Card className="bg-white border-[#E2DDD4] shadow-sm xl:col-span-2">
         <CardHeader>
           <CardTitle className="text-black">Carrier Document Library</CardTitle>
           <CardDescription>
@@ -2806,12 +2897,12 @@ function CarrierLibrarySettings() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="md:col-span-2">
                 <Label className="text-gray-600">Document name</Label>
-                <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="2026 Term Life Brochure" />
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="2026 Term Life Brochure" />
               </div>
               <div>
                 <Label className="text-gray-600">Type</Label>
                 <Select value={uploadType} onValueChange={setUploadType}>
-                  <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="brochure">Brochure</SelectItem>
                     <SelectItem value="underwriting_guidelines">Underwriting Guidelines</SelectItem>
@@ -2822,11 +2913,11 @@ function CarrierLibrarySettings() {
               </div>
               <div>
                 <Label className="text-gray-600">Version</Label>
-                <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={uploadVersion} onChange={(e) => setUploadVersion(e.target.value)} placeholder="v1.0" />
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={uploadVersion} onChange={(e) => setUploadVersion(e.target.value)} placeholder="v1.0" />
               </div>
               <div className="md:col-span-3">
                 <Label className="text-gray-600">File</Label>
-                <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" type="file" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
               </div>
               <div className="flex items-end">
                 <Button className="btn-gold w-full" onClick={() => void uploadDocument()} disabled={loading || !uploadFile}>
@@ -2839,7 +2930,7 @@ function CarrierLibrarySettings() {
             <div>
               <Label className="text-gray-600">Document filter</Label>
               <Select value={docFilter} onValueChange={setDocFilter}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="brochure">Brochure</SelectItem>
@@ -2849,7 +2940,7 @@ function CarrierLibrarySettings() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="p-3 bg-[#F8F4E8] border border-[#E8E4D9] rounded-lg">
+            <div className="p-3 bg-[#F5F1EA] border border-[#E2DDD4] rounded-lg">
               <p className="text-xs font-medium text-black">Underwriting Prep Checklist</p>
               <div className="mt-1 space-y-1">
                 {underwritingChecklist.slice(0, 3).map((item) => (
@@ -2861,7 +2952,7 @@ function CarrierLibrarySettings() {
           <Separator />
           <div className="space-y-2">
             {filteredDocuments.length === 0 ? (
-              <div className="p-5 border border-dashed border-[#E8E4D9] rounded-lg text-sm text-gray-500">
+              <div className="p-5 border border-dashed border-[#E2DDD4] rounded-lg text-sm text-gray-500">
                 No documents yet. Upload brochures and underwriting guidelines here.
               </div>
             ) : filteredDocuments.map((doc) => (
@@ -2869,14 +2960,401 @@ function CarrierLibrarySettings() {
                 key={doc.id}
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="p-3 bg-[#F8F4E8] border border-[#E8E4D9] rounded-lg flex items-center justify-between gap-3"
+                className="p-3 bg-[#F5F1EA] border border-[#E2DDD4] rounded-lg flex items-center justify-between gap-3"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-black truncate">{doc.name}</p>
                   <p className="text-xs text-gray-500 capitalize">{doc.type.replaceAll('_', ' ')} {doc.version ? `• ${doc.version}` : ''}</p>
                 </div>
-                <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-sm text-[#D4AF37] hover:underline">Open</a>
+                <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-sm text-[#3B8595] hover:underline">Open</a>
               </motion.div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Commissions Tracker View
+type CommissionRecord = {
+  id: string
+  clientName: string
+  carrier: string | null
+  product: string | null
+  policyNumber: string | null
+  type: string
+  status: string
+  premiumAmount: number | null
+  commissionRate: number | null
+  commissionAmount: number
+  effectiveDate: string | null
+  paidDate: string | null
+  notes: string | null
+  createdAt: string
+}
+
+function CommissionsView() {
+  const [commissions, setCommissions] = useState<CommissionRecord[]>([])
+  const [summary, setSummary] = useState({ totalPending: 0, totalPaid: 0, totalClawedBack: 0, netEarnings: 0, count: 0 })
+  const [loading, setLoading] = useState(true)
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ clientName: '', carrier: '', product: '', policyNumber: '', type: 'new_business', premiumAmount: '', commissionRate: '', commissionAmount: '', notes: '' })
+
+  const loadCommissions = useCallback(async () => {
+    try {
+      const res = await fetch('/api/commissions')
+      if (!res.ok) throw new Error('Failed')
+      const data = await res.json()
+      setCommissions(data.commissions || [])
+      setSummary(data.summary || { totalPending: 0, totalPaid: 0, totalClawedBack: 0, netEarnings: 0, count: 0 })
+    } catch { setCommissions([]) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { void loadCommissions() }, [loadCommissions])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/commissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientName: form.clientName,
+          carrier: form.carrier || undefined,
+          product: form.product || undefined,
+          policyNumber: form.policyNumber || undefined,
+          type: form.type,
+          premiumAmount: form.premiumAmount ? parseFloat(form.premiumAmount) : undefined,
+          commissionRate: form.commissionRate ? parseFloat(form.commissionRate) : undefined,
+          commissionAmount: parseFloat(form.commissionAmount || '0'),
+          notes: form.notes || undefined,
+        }),
+      })
+      if (res.ok) {
+        setShowAddDialog(false)
+        setForm({ clientName: '', carrier: '', product: '', policyNumber: '', type: 'new_business', premiumAmount: '', commissionRate: '', commissionAmount: '', notes: '' })
+        void loadCommissions()
+      }
+    } catch { /* silent */ }
+    finally { setSaving(false) }
+  }
+
+  const markPaid = async (id: string) => {
+    await fetch(`/api/commissions?id=${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'paid', paidDate: new Date().toISOString() }),
+    })
+    void loadCommissions()
+  }
+
+  return (
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1E293B]">Commissions</h1>
+          <p className="text-gray-500">Track your earnings, pending payments, and commission history</p>
+        </div>
+        <Button className="btn-gold gap-2" onClick={() => setShowAddDialog(true)}>
+          <Plus className="w-4 h-4" />
+          Log Commission
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardContent className="p-5">
+            <p className="text-sm text-gray-500">Net Earnings</p>
+            <p className="text-2xl font-bold text-[#1E293B]">${summary.netEarnings.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardContent className="p-5">
+            <p className="text-sm text-gray-500">Paid</p>
+            <p className="text-2xl font-bold text-emerald-600">${summary.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardContent className="p-5">
+            <p className="text-sm text-gray-500">Pending</p>
+            <p className="text-2xl font-bold text-amber-600">${summary.totalPending.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardContent className="p-5">
+            <p className="text-sm text-gray-500">Clawed Back</p>
+            <p className="text-2xl font-bold text-red-600">${summary.totalClawedBack.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {loading && <div className="flex items-center justify-center py-12 text-gray-500"><RefreshCw className="w-6 h-6 animate-spin mr-2" />Loading commissions…</div>}
+
+      {!loading && commissions.length === 0 && (
+        <Card className="bg-white border-[#E2DDD4]">
+          <CardContent className="p-12 text-center">
+            <DollarSign className="w-12 h-12 text-[#3B8595]/40 mx-auto mb-4" />
+            <p className="text-gray-600">No commissions logged yet.</p>
+            <Button className="btn-gold mt-4 gap-2" onClick={() => setShowAddDialog(true)}>
+              <Plus className="w-4 h-4" />
+              Log your first commission
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && commissions.length > 0 && (
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#E2DDD4] bg-[#F5F1EA]">
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Client</th>
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Carrier</th>
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Type</th>
+                    <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase">Premium</th>
+                    <th className="text-right p-3 text-xs font-medium text-gray-500 uppercase">Commission</th>
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commissions.map((c) => (
+                    <tr key={c.id} className="border-b border-[#E2DDD4] last:border-0 hover:bg-[#F5F1EA]/50">
+                      <td className="p-3 text-sm font-medium text-[#1E293B]">{c.clientName}</td>
+                      <td className="p-3 text-sm text-gray-600">{c.carrier || '—'}</td>
+                      <td className="p-3">
+                        <Badge variant="outline" className="text-xs capitalize">{c.type.replace('_', ' ')}</Badge>
+                      </td>
+                      <td className="p-3 text-sm text-right text-gray-600">{c.premiumAmount ? `$${c.premiumAmount.toLocaleString()}` : '—'}</td>
+                      <td className="p-3 text-sm text-right font-semibold text-[#1E293B]">${c.commissionAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="p-3">
+                        <Badge variant="outline" className={cn(
+                          "text-xs capitalize",
+                          c.status === 'paid' && "border-emerald-500 text-emerald-600",
+                          c.status === 'pending' && "border-amber-500 text-amber-600",
+                          c.status === 'clawed_back' && "border-red-500 text-red-600",
+                        )}>{c.status.replace('_', ' ')}</Badge>
+                      </td>
+                      <td className="p-3">
+                        {c.status === 'pending' && (
+                          <Button variant="ghost" size="sm" className="text-xs text-emerald-600 hover:text-emerald-700" onClick={() => markPaid(c.id)}>
+                            <Check className="w-3 h-3 mr-1" /> Mark Paid
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-[#1E293B] flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-[#3B8595]" />
+              Log Commission
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAdd} className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-600">Client name *</Label>
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))} required />
+              </div>
+              <div>
+                <Label className="text-gray-600">Carrier</Label>
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.carrier} onChange={(e) => setForm((f) => ({ ...f, carrier: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-600">Product</Label>
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.product} onChange={(e) => setForm((f) => ({ ...f, product: e.target.value }))} placeholder="Term Life, Medicare Supp..." />
+              </div>
+              <div>
+                <Label className="text-gray-600">Policy #</Label>
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.policyNumber} onChange={(e) => setForm((f) => ({ ...f, policyNumber: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-gray-600">Premium ($)</Label>
+                <Input type="number" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.premiumAmount} onChange={(e) => setForm((f) => ({ ...f, premiumAmount: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-gray-600">Rate (%)</Label>
+                <Input type="number" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.commissionRate} onChange={(e) => setForm((f) => ({ ...f, commissionRate: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-gray-600">Commission ($) *</Label>
+                <Input type="number" step="0.01" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.commissionAmount} onChange={(e) => setForm((f) => ({ ...f, commissionAmount: e.target.value }))} required />
+              </div>
+            </div>
+            <div>
+              <Label className="text-gray-600">Type</Label>
+              <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v }))}>
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new_business">New Business</SelectItem>
+                  <SelectItem value="renewal">Renewal</SelectItem>
+                  <SelectItem value="override">Override</SelectItem>
+                  <SelectItem value="bonus">Bonus</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-gray-600">Notes</Label>
+              <Textarea className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
+            </div>
+            <DialogFooter className="gap-2 pt-2">
+              <Button type="button" variant="outline" className="border-[#E2DDD4]" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+              <Button type="submit" className="btn-gold" disabled={saving}>{saving ? 'Saving...' : 'Log Commission'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// Analytics View
+function AnalyticsView() {
+  return (
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
+      <div>
+        <h1 className="text-2xl font-bold text-[#1E293B]">Analytics</h1>
+        <p className="text-gray-500">Deep insights into your sales performance and team metrics</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-[#1E293B] text-lg">Revenue & Leads</CardTitle>
+            <CardDescription>6-month trend overview</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={chartConfig} className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2DDD4" />
+                  <XAxis dataKey="month" stroke="#64748B" fontSize={12} />
+                  <YAxis stroke="#64748B" fontSize={12} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Area type="monotone" dataKey="revenue" stroke="#3B8595" fill="#3B8595" fillOpacity={0.15} strokeWidth={2} />
+                  <Area type="monotone" dataKey="leads" stroke="#334155" fill="#334155" fillOpacity={0.08} strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-[#1E293B] text-lg">Lead Sources</CardTitle>
+            <CardDescription>Where your leads come from</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={chartConfig} className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsPieChart>
+                  <Pie data={sourceData} cx="50%" cy="50%" outerRadius={100} dataKey="value" nameKey="name" label>
+                    {sourceData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                </RechartsPieChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-[#1E293B] text-lg">Win Rate by Month</CardTitle>
+            <CardDescription>Deals won vs total deals</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={chartConfig} className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2DDD4" />
+                  <XAxis dataKey="month" stroke="#64748B" fontSize={12} />
+                  <YAxis stroke="#64748B" fontSize={12} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Bar dataKey="won" fill="#3B8595" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="leads" fill="#E2DDD4" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white border-[#E2DDD4] shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-[#1E293B] text-lg">Activity Heatmap</CardTitle>
+            <CardDescription>Your most productive hours</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-7 gap-1.5">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                <div key={day} className="text-center">
+                  <span className="text-xs text-gray-500">{day}</span>
+                  <div className="space-y-1 mt-1">
+                    {Array.from({ length: 8 }, (_, i) => {
+                      const intensity = Math.random()
+                      return (
+                        <div
+                          key={i}
+                          className="w-full h-5 rounded-sm"
+                          style={{ background: intensity > 0.7 ? '#3B8595' : intensity > 0.4 ? '#5BA3B3' : intensity > 0.15 ? '#E2DDD4' : '#F5F1EA' }}
+                          title={`${8 + i}:00 - ${9 + i}:00`}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-3">
+              <span className="text-xs text-gray-500">Less</span>
+              {['#F5F1EA', '#E2DDD4', '#5BA3B3', '#3B8595'].map((c) => (
+                <div key={c} className="w-4 h-4 rounded-sm" style={{ background: c }} />
+              ))}
+              <span className="text-xs text-gray-500">More</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="bg-white border-[#E2DDD4] shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-[#1E293B] text-lg">Key Performance Indicators</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {[
+              { label: 'Avg. Close Time', value: '14 days', sub: '-2d from last month' },
+              { label: 'Conversion Rate', value: '23%', sub: '+5% this quarter' },
+              { label: 'Avg. Deal Size', value: '$52K', sub: '+8% YoY' },
+              { label: 'Response Time', value: '2.4 hrs', sub: 'Target: < 4 hrs' },
+              { label: 'NPS Score', value: '72', sub: 'Excellent' },
+            ].map((kpi) => (
+              <div key={kpi.label} className="p-4 bg-[#F5F1EA] rounded-lg text-center">
+                <p className="text-2xl font-bold text-[#1E293B]">{kpi.value}</p>
+                <p className="text-sm text-gray-600 mt-1">{kpi.label}</p>
+                <p className="text-xs text-[#3B8595] mt-0.5">{kpi.sub}</p>
+              </div>
             ))}
           </div>
         </CardContent>
@@ -2888,50 +3366,50 @@ function CarrierLibrarySettings() {
 function SettingsView() {
   const [activeSettingsTab, setActiveSettingsTab] = useState("organization")
   return (
-    <div className="p-6 space-y-6 bg-[#FEFCF6] min-h-screen">
+    <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       <div>
         <h1 className="text-2xl font-bold text-black">Settings</h1>
         <p className="text-gray-500">Multi-tenant organization, team, security, and integrations</p>
       </div>
       
       <Tabs value={activeSettingsTab} onValueChange={setActiveSettingsTab} className="w-full">
-        <TabsList className="bg-[#F8F4E8] border border-[#E8E4D9] p-1 gap-1 flex flex-wrap h-auto">
-          <TabsTrigger value="organization" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+        <TabsList className="bg-[#F5F1EA] border border-[#E2DDD4] p-1 gap-1 flex flex-wrap h-auto">
+          <TabsTrigger value="organization" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <Building2 className="w-4 h-4" />
             Organization
           </TabsTrigger>
-          <TabsTrigger value="team" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="team" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <Users className="w-4 h-4" />
             Team & roles
           </TabsTrigger>
-          <TabsTrigger value="security" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="security" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <Shield className="w-4 h-4" />
             Security
           </TabsTrigger>
-          <TabsTrigger value="integrations" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="integrations" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <Zap className="w-4 h-4" />
             Integrations
           </TabsTrigger>
-          <TabsTrigger value="carriers" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="carriers" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <FileText className="w-4 h-4" />
             Carriers & Docs
           </TabsTrigger>
-          <TabsTrigger value="webhooks" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="webhooks" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <Webhook className="w-4 h-4" />
             Webhooks
           </TabsTrigger>
-          <TabsTrigger value="billing" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="billing" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <DollarSign className="w-4 h-4" />
             Billing
           </TabsTrigger>
-          <TabsTrigger value="audit" className="data-[state=active]:bg-[#D4AF37] data-[state=active]:text-black gap-2">
+          <TabsTrigger value="audit" className="data-[state=active]:bg-[#3B8595] data-[state=active]:text-black gap-2">
             <History className="w-4 h-4" />
             Audit log
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="organization" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <CardTitle className="text-black">Organization profile</CardTitle>
               <CardDescription>Your workspace identity and plan</CardDescription>
@@ -2940,23 +3418,23 @@ function SettingsView() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-gray-600">Organization name</Label>
-                  <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" defaultValue="Acme Corp" />
+                  <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" defaultValue="Acme Corp" />
                 </div>
                 <div>
                   <Label className="text-gray-600">URL slug</Label>
-                  <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" defaultValue="acme-corp" />
+                  <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" defaultValue="acme-corp" />
                 </div>
               </div>
               <div>
                 <Label className="text-gray-600">Logo URL</Label>
-                <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" placeholder="https://..." />
+                <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" placeholder="https://..." />
               </div>
-              <div className="flex items-center justify-between p-3 bg-[#F8F4E8] rounded-lg">
+              <div className="flex items-center justify-between p-3 bg-[#F5F1EA] rounded-lg">
                 <div>
                   <p className="font-medium text-black">Current plan</p>
                   <p className="text-sm text-gray-500">Pro — 10 team members, 50K leads</p>
                 </div>
-                <Badge className="bg-[#D4AF37] text-black">Pro</Badge>
+                <Badge className="bg-[#3B8595] text-black">Pro</Badge>
               </div>
               <Button className="btn-gold">Save changes</Button>
             </CardContent>
@@ -2964,7 +3442,7 @@ function SettingsView() {
         </TabsContent>
 
         <TabsContent value="team" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -2980,10 +3458,10 @@ function SettingsView() {
             <CardContent>
               <div className="space-y-3">
                 {settingsTeamMembers.map((m) => (
-                  <div key={m.email} className="flex items-center justify-between p-3 bg-[#F8F4E8] rounded-lg">
+                  <div key={m.email} className="flex items-center justify-between p-3 bg-[#F5F1EA] rounded-lg">
                     <div className="flex items-center gap-3">
                       <Avatar className="w-9 h-9">
-                        <AvatarFallback className="bg-[#D4AF37] text-black text-sm">{m.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                        <AvatarFallback className="bg-[#3B8595] text-black text-sm">{m.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="text-sm font-medium text-black">{m.name}</p>
@@ -2991,8 +3469,8 @@ function SettingsView() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="border-[#E8E4D9]">{m.role}</Badge>
-                      <Button variant="ghost" size="icon" className="text-gray-400 hover:text-[#D4AF37]"><MoreHorizontal className="w-4 h-4" /></Button>
+                      <Badge variant="outline" className="border-[#E2DDD4]">{m.role}</Badge>
+                      <Button variant="ghost" size="icon" className="text-gray-400 hover:text-[#3B8595]"><MoreHorizontal className="w-4 h-4" /></Button>
                     </div>
                   </div>
                 ))}
@@ -3002,15 +3480,15 @@ function SettingsView() {
         </TabsContent>
 
         <TabsContent value="security" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <CardTitle className="text-black">Security</CardTitle>
               <CardDescription>2FA, sessions, API keys, and password policy</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 bg-[#F8F4E8] rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-[#F5F1EA] rounded-lg">
                 <div className="flex items-center gap-3">
-                  <Shield className="w-5 h-5 text-[#D4AF37]" />
+                  <Shield className="w-5 h-5 text-[#3B8595]" />
                   <div>
                     <p className="font-medium text-black">Two-factor authentication</p>
                     <p className="text-xs text-gray-500">Recommended for all admins</p>
@@ -3018,35 +3496,35 @@ function SettingsView() {
                 </div>
                 <Switch />
               </div>
-              <div className="flex items-center justify-between p-4 bg-[#F8F4E8] rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-[#F5F1EA] rounded-lg">
                 <div className="flex items-center gap-3">
-                  <Key className="w-5 h-5 text-[#D4AF37]" />
+                  <Key className="w-5 h-5 text-[#3B8595]" />
                   <div>
                     <p className="font-medium text-black">API keys</p>
                     <p className="text-xs text-gray-500">For programmatic access</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="border-[#D4AF37] text-[#D4AF37]">Manage</Button>
+                <Button variant="outline" size="sm" className="border-[#3B8595] text-[#3B8595]">Manage</Button>
               </div>
               <div>
                 <Label className="text-gray-600">Session timeout (minutes)</Label>
-                <Input type="number" className="mt-1 w-32 bg-[#F8F4E8] border-[#E8E4D9]" defaultValue="60" />
+                <Input type="number" className="mt-1 w-32 bg-[#F5F1EA] border-[#E2DDD4]" defaultValue="60" />
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="integrations" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <CardTitle className="text-black">Integrations</CardTitle>
               <CardDescription>Connect email, calendar, SMS, and more</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {settingsIntegrations.map((i) => (
-                <div key={i.name} className="flex items-center justify-between p-4 bg-[#F8F4E8] rounded-lg">
+                <div key={i.name} className="flex items-center justify-between p-4 bg-[#F5F1EA] rounded-lg">
                   <div className="flex items-center gap-3">
-                    <i.icon className="w-5 h-5 text-[#D4AF37]" />
+                    <i.icon className="w-5 h-5 text-[#3B8595]" />
                     <div>
                       <p className="text-sm font-medium text-black">{i.name}</p>
                       <p className="text-xs text-gray-500">{i.description}</p>
@@ -3057,7 +3535,7 @@ function SettingsView() {
                       i.status === "connected" && "border-emerald-500 text-emerald-600",
                       i.status === "disconnected" && "border-gray-400 text-gray-500"
                     )}>{i.status}</Badge>
-                    <Button variant="outline" size="sm" className="border-[#E8E4D9]">
+                    <Button variant="outline" size="sm" className="border-[#E2DDD4]">
                       {i.status === "connected" ? "Configure" : "Connect"}
                     </Button>
                   </div>
@@ -3072,7 +3550,7 @@ function SettingsView() {
         </TabsContent>
 
         <TabsContent value="webhooks" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -3086,7 +3564,7 @@ function SettingsView() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="p-6 border border-dashed border-[#E8E4D9] rounded-lg text-center text-gray-500 text-sm">
+              <div className="p-6 border border-dashed border-[#E2DDD4] rounded-lg text-center text-gray-500 text-sm">
                 No webhooks yet. Add one to receive lead.created, deal.won, etc.
               </div>
             </CardContent>
@@ -3094,19 +3572,19 @@ function SettingsView() {
         </TabsContent>
 
         <TabsContent value="billing" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <CardTitle className="text-black">Billing & plan</CardTitle>
               <CardDescription>Usage and subscription</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-[#F8F4E8] rounded-lg">
+                <div className="p-4 bg-[#F5F1EA] rounded-lg">
                   <p className="text-sm text-gray-500">Leads this month</p>
                   <p className="text-2xl font-bold text-black">12,450 / 50,000</p>
                   <Progress value={25} className="mt-2 h-2" />
                 </div>
-                <div className="p-4 bg-[#F8F4E8] rounded-lg">
+                <div className="p-4 bg-[#F5F1EA] rounded-lg">
                   <p className="text-sm text-gray-500">Team seats</p>
                   <p className="text-2xl font-bold text-black">3 / 10</p>
                 </div>
@@ -3117,7 +3595,7 @@ function SettingsView() {
         </TabsContent>
 
         <TabsContent value="audit" className="mt-6 space-y-6">
-          <Card className="bg-white border-[#E8E4D9] shadow-sm">
+          <Card className="bg-white border-[#E2DDD4] shadow-sm">
             <CardHeader>
               <CardTitle className="text-black">Audit log</CardTitle>
               <CardDescription>Recent actions across the organization</CardDescription>
@@ -3129,13 +3607,13 @@ function SettingsView() {
                   { action: "CSV imported", user: "Jane Smith", time: "1 hour ago" },
                   { action: "Deal stage changed", user: "John Doe", time: "2 hours ago" },
                 ].map((e, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 border-b border-[#E8E4D9] last:border-0">
+                  <div key={i} className="flex items-center justify-between py-2 border-b border-[#E2DDD4] last:border-0">
                     <span className="text-sm text-black">{e.action}</span>
                     <span className="text-xs text-gray-500">{e.user} · {e.time}</span>
                   </div>
                 ))}
               </div>
-              <Button variant="outline" className="mt-4 border-[#E8E4D9] w-full">View full audit log</Button>
+              <Button variant="outline" className="mt-4 border-[#E2DDD4] w-full">View full audit log</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -3195,10 +3673,10 @@ function AddLeadDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-white border-[#E8E4D9] max-w-lg">
+      <DialogContent className="bg-white border-[#E2DDD4] max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-black flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-[#D4AF37]" />
+            <UserPlus className="w-5 h-5 text-[#3B8595]" />
             Add new lead
           </DialogTitle>
           <DialogDescription className="text-gray-500">
@@ -3209,36 +3687,36 @@ function AddLeadDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-gray-600">First name</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="Jane" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="Jane" />
             </div>
             <div>
               <Label className="text-gray-600">Last name</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Doe" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Doe" />
             </div>
           </div>
           <div>
             <Label className="text-gray-600">Email</Label>
-            <Input type="email" className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@company.com" />
+            <Input type="email" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@company.com" />
           </div>
           <div>
             <Label className="text-gray-600">Phone</Label>
-            <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 (555) 000-0000" />
+            <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 (555) 000-0000" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-gray-600">Company</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} placeholder="Acme Inc" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} placeholder="Acme Inc" />
             </div>
             <div>
               <Label className="text-gray-600">Title</Label>
-              <Input className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="VP Sales" />
+              <Input className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="VP Sales" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-gray-600">Source</Label>
               <Select value={form.source} onValueChange={v => setForm(f => ({ ...f, source: v }))}>
-                <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]">
+                <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -3252,11 +3730,11 @@ function AddLeadDialog({
             </div>
             <div>
               <Label className="text-gray-600">Est. value ($)</Label>
-              <Input type="number" className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]" value={form.estimatedValue} onChange={e => setForm(f => ({ ...f, estimatedValue: e.target.value }))} placeholder="50000" />
+              <Input type="number" className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]" value={form.estimatedValue} onChange={e => setForm(f => ({ ...f, estimatedValue: e.target.value }))} placeholder="50000" />
             </div>
           </div>
           <DialogFooter className="gap-2 pt-4">
-            <Button type="button" variant="outline" className="border-[#E8E4D9]" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="button" variant="outline" className="border-[#E2DDD4]" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" className="btn-gold" disabled={saving}>{saving ? 'Saving...' : 'Add lead'}</Button>
           </DialogFooter>
         </form>
@@ -3267,6 +3745,43 @@ function AddLeadDialog({
 
 // Main App
 export default function EliteCRM() {
+  const router = useRouter()
+  const [authChecked, setAuthChecked] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; name: string | null; role: string; organizationId: string } | null>(null)
+  const [currentOrg, setCurrentOrg] = useState<{ id: string; name: string; slug: string } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/auth')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.user) {
+          setCurrentUser(data.user)
+          setCurrentOrg(data.organization || null)
+          setAuthChecked(true)
+        } else {
+          return fetch('/api/ready')
+            .then((r) => r.json())
+            .then((readyData) => {
+              if (readyData.ready && readyData.database === 'ok') {
+                router.push('/auth')
+              } else {
+                setAuthChecked(true)
+              }
+            })
+        }
+      })
+      .catch(() => setAuthChecked(true))
+  }, [router])
+
+  const handleSignOut = useCallback(async () => {
+    await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'signout' }),
+    })
+    router.push('/auth')
+  }, [router])
+
   const [activeView, setActiveView] = useState("dashboard")
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [showAddLeadDialog, setShowAddLeadDialog] = useState(false)
@@ -3404,6 +3919,8 @@ export default function EliteCRM() {
       case "dashboard": return <DashboardView />
       case "leads": return <LeadsView onAddLead={() => setShowAddLeadDialog(true)} onUploadCSV={() => setShowUploadDialog(true)} onScrape={() => setShowScrapeDialog(true)} refreshKey={leadsRefreshKey} />
       case "pipeline": return <PipelineView />
+      case "commissions": return <CommissionsView />
+      case "analytics": return <AnalyticsView />
       case "linear": return <LinearView onCreateIssue={() => { setLinearIssuePrefill({}); setShowLinearIssueDialog(true) }} />
       case "uploads": return <UploadsView onUploadCSV={() => setShowUploadDialog(true)} refreshKey={uploadsRefreshKey} />
       case "automation": return <AutomationView />
@@ -3413,9 +3930,20 @@ export default function EliteCRM() {
     }
   }
   
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-[#3B8595]/30 border-t-[#3B8595] rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-[#64748B]">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-[#FEFCF6]">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+    <div className="min-h-screen bg-[#FDFBF7]">
+      <Sidebar activeView={activeView} setActiveView={setActiveView} userName={currentUser?.name || currentUser?.email} userRole={currentUser?.role} onSignOut={handleSignOut} />
       <div
         className="transition-all duration-300"
         style={{ marginLeft: sidebarOpen ? 260 : 80 }}
@@ -3445,10 +3973,10 @@ export default function EliteCRM() {
       
       {/* Upload CSV Dialog (global) */}
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-lg">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-black flex items-center gap-2">
-              <Upload className="w-5 h-5 text-[#D4AF37]" />
+              <Upload className="w-5 h-5 text-[#3B8595]" />
               Import Leads from CSV
             </DialogTitle>
             <DialogDescription className="text-gray-500">
@@ -3457,7 +3985,7 @@ export default function EliteCRM() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="upload-zone rounded-lg p-8 text-center">
-              <FileSpreadsheet className="w-12 h-12 text-[#D4AF37] mx-auto mb-4" />
+              <FileSpreadsheet className="w-12 h-12 text-[#3B8595] mx-auto mb-4" />
               <p className="text-sm text-gray-600 mb-2">Drag and drop your CSV file here, or</p>
               <Label htmlFor="global-csv-upload" className="btn-gold cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-lg">
                 <Upload className="w-4 h-4" />
@@ -3472,7 +4000,7 @@ export default function EliteCRM() {
                 disabled={uploading}
               />
             </div>
-            <div className="bg-[#F8F4E8] rounded-lg p-4 space-y-2">
+            <div className="bg-[#F5F1EA] rounded-lg p-4 space-y-2">
               <h4 className="text-sm font-medium text-black">CSV Format Requirements:</h4>
               <ul className="text-xs text-gray-600 space-y-1">
                 <li>• First row must contain headers</li>
@@ -3482,7 +4010,7 @@ export default function EliteCRM() {
               </ul>
             </div>
             {uploading && (
-              <div className="flex items-center justify-center gap-2 text-[#D4AF37]">
+              <div className="flex items-center justify-center gap-2 text-[#3B8595]">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Processing...</span>
               </div>
@@ -3493,10 +4021,10 @@ export default function EliteCRM() {
 
       {/* Scrape Leads Dialog */}
       <Dialog open={showScrapeDialog} onOpenChange={setShowScrapeDialog}>
-        <DialogContent className="bg-white border-[#E8E4D9] max-w-2xl">
+        <DialogContent className="bg-white border-[#E2DDD4] max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-black flex items-center gap-2">
-              <Globe className="w-5 h-5 text-[#D4AF37]" />
+              <Globe className="w-5 h-5 text-[#3B8595]" />
               Scrape Leads from Websites & Directories
             </DialogTitle>
             <DialogDescription className="text-gray-500">
@@ -3507,7 +4035,7 @@ export default function EliteCRM() {
             <div>
               <Label className="text-gray-600">Target URL</Label>
               <Input
-                className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"
+                className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"
                 placeholder="https://example.com/directory"
                 value={scrapeForm.url}
                 onChange={(e) => setScrapeForm((prev) => ({ ...prev, url: e.target.value }))}
@@ -3517,7 +4045,7 @@ export default function EliteCRM() {
               <div>
                 <Label className="text-gray-600">Type</Label>
                 <Select value={scrapeForm.type} onValueChange={(v) => setScrapeForm((prev) => ({ ...prev, type: v }))}>
-                  <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="website">Website</SelectItem>
                     <SelectItem value="directory">Directory</SelectItem>
@@ -3531,26 +4059,26 @@ export default function EliteCRM() {
                   type="number"
                   min={1}
                   max={100}
-                  className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"
+                  className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"
                   value={scrapeForm.maxPages}
                   onChange={(e) => setScrapeForm((prev) => ({ ...prev, maxPages: Number(e.target.value) || 15 }))}
                 />
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-600">Options</Label>
-                <div className="flex items-center justify-between p-2 bg-[#F8F4E8] rounded border border-[#E8E4D9]">
+                <div className="flex items-center justify-between p-2 bg-[#F5F1EA] rounded border border-[#E2DDD4]">
                   <span className="text-xs text-gray-600">Follow links</span>
                   <Switch checked={scrapeForm.followLinks} onCheckedChange={(v) => setScrapeForm((prev) => ({ ...prev, followLinks: v }))} />
                 </div>
-                <div className="flex items-center justify-between p-2 bg-[#F8F4E8] rounded border border-[#E8E4D9]">
+                <div className="flex items-center justify-between p-2 bg-[#F5F1EA] rounded border border-[#E2DDD4]">
                   <span className="text-xs text-gray-600">Use headless/JS</span>
                   <Switch checked={scrapeForm.useHeadless} onCheckedChange={(v) => setScrapeForm((prev) => ({ ...prev, useHeadless: v }))} />
                 </div>
-                <div className="flex items-center justify-between p-2 bg-[#F8F4E8] rounded border border-[#E8E4D9]">
+                <div className="flex items-center justify-between p-2 bg-[#F5F1EA] rounded border border-[#E2DDD4]">
                   <span className="text-xs text-gray-600">Rotate user agent</span>
                   <Switch checked={scrapeForm.rotateUserAgent} onCheckedChange={(v) => setScrapeForm((prev) => ({ ...prev, rotateUserAgent: v }))} />
                 </div>
-                <div className="flex items-center justify-between p-2 bg-[#F8F4E8] rounded border border-[#E8E4D9]">
+                <div className="flex items-center justify-between p-2 bg-[#F5F1EA] rounded border border-[#E2DDD4]">
                   <span className="text-xs text-gray-600">Respect robots.txt</span>
                   <Switch checked={scrapeForm.respectRobots} onCheckedChange={(v) => setScrapeForm((prev) => ({ ...prev, respectRobots: v }))} />
                 </div>
@@ -3563,13 +4091,13 @@ export default function EliteCRM() {
                   type="number"
                   min={0}
                   max={10000}
-                  className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"
+                  className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"
                   value={scrapeForm.delayMs}
                   onChange={(e) => setScrapeForm((prev) => ({ ...prev, delayMs: Number(e.target.value) || 0 }))}
                 />
               </div>
               <div className="flex items-end">
-                <div className="flex items-center justify-between p-2 bg-[#F8F4E8] rounded border border-[#E8E4D9] w-full">
+                <div className="flex items-center justify-between p-2 bg-[#F5F1EA] rounded border border-[#E2DDD4] w-full">
                   <span className="text-xs text-gray-600">Enable proxy provider</span>
                   <Switch checked={scrapeForm.proxyEnabled} onCheckedChange={(v) => setScrapeForm((prev) => ({ ...prev, proxyEnabled: v }))} />
                 </div>
@@ -3577,7 +4105,7 @@ export default function EliteCRM() {
               <div>
                 <Label className="text-gray-600">Proxy provider</Label>
                 <Select value={scrapeForm.proxyProvider} onValueChange={(v) => setScrapeForm((prev) => ({ ...prev, proxyProvider: v }))}>
-                  <SelectTrigger className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">None</SelectItem>
                     <SelectItem value="scrapingbee">ScrapingBee</SelectItem>
@@ -3590,7 +4118,7 @@ export default function EliteCRM() {
               <div>
                 <Label className="text-gray-600">Proxy template URL</Label>
                 <Input
-                  className="mt-1 bg-[#F8F4E8] border-[#E8E4D9]"
+                  className="mt-1 bg-[#F5F1EA] border-[#E2DDD4]"
                   placeholder="https://my-proxy.example.com?url={url}"
                   value={scrapeForm.proxyUrlTemplate}
                   onChange={(e) => setScrapeForm((prev) => ({ ...prev, proxyUrlTemplate: e.target.value }))}
@@ -3599,7 +4127,7 @@ export default function EliteCRM() {
               </div>
             )}
             <DialogFooter className="gap-2">
-              <Button variant="outline" className="border-[#E8E4D9]" onClick={() => setShowScrapeDialog(false)}>Cancel</Button>
+              <Button variant="outline" className="border-[#E2DDD4]" onClick={() => setShowScrapeDialog(false)}>Cancel</Button>
               <Button className="btn-gold" onClick={() => void handleScrapeSubmit()} disabled={scraping}>
                 {scraping ? 'Starting...' : 'Start Scrape'}
               </Button>
@@ -3612,7 +4140,7 @@ export default function EliteCRM() {
                 {scrapeJobs.length === 0 ? (
                   <p className="text-xs text-gray-500">No jobs yet.</p>
                 ) : scrapeJobs.map((job) => (
-                  <div key={job.id} className="p-2 bg-[#F8F4E8] border border-[#E8E4D9] rounded flex items-center justify-between gap-3">
+                  <div key={job.id} className="p-2 bg-[#F5F1EA] border border-[#E2DDD4] rounded flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs text-black truncate">{job.sourceUrl}</p>
                       <p className="text-[11px] text-gray-500">{new Date(job.createdAt).toLocaleString()}</p>

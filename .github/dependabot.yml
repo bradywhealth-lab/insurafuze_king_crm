@@ -7,46 +7,49 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "09:00"
-      timezone: America/New_York
+      time: "06:00"
+      timezone: UTC
     open-pull-requests-limit: 10
-    reviewers: []
     labels:
       - dependencies
       - automated
     groups:
-      # Group minor/patch Radix updates into one PR
       radix:
         patterns:
           - "@radix-ui/*"
         update-types:
           - minor
           - patch
-      # Group minor/patch TanStack updates
       tanstack:
         patterns:
           - "@tanstack/*"
         update-types:
           - minor
           - patch
-      # Group Prisma updates (they release together)
       prisma:
         patterns:
           - "prisma"
           - "@prisma/*"
-      # Group type definition updates
       types:
         patterns:
           - "@types/*"
         update-types:
           - minor
           - patch
+    commit-message:
+      prefix: "deps"
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: UTC
+    open-pull-requests-limit: 5
     labels:
       - dependencies
       - ci
       - automated
+    commit-message:
+      prefix: "ci"

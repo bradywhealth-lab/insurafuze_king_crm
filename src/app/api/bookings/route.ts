@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
           },
         })
       }
-      resolvedLeadId = lead?.id ?? null
+      resolvedLeadId = lead?.id
     }
 
     const activity = await db.activity.create({

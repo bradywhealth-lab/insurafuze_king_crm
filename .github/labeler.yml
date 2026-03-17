@@ -1,34 +1,50 @@
 # Label rules for actions/labeler — maps file globs to PR labels.
 
-"area: database":
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/app/**"
+          - "src/components/**"
+          - "public/**"
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/lib/**"
+          - "src/app/api/**"
+          - "mini-services/**"
+
+database:
   - changed-files:
       - any-glob-to-any-file:
           - "prisma/**"
+          - "prisma.config.ts"
+          - "scripts/apply-init-sql.mjs"
 
-"area: api":
+tests:
   - changed-files:
       - any-glob-to-any-file:
-          - "src/app/api/**"
+          - "src/**/*.test.ts"
+          - "vitest.config.ts"
 
-"area: ui":
+documentation:
   - changed-files:
       - any-glob-to-any-file:
-          - "src/components/**"
-          - "src/app/**/page.tsx"
-          - "src/app/globals.css"
+          - "README.md"
+          - "docs/**"
+          - "**/*.md"
+
+automation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "scripts/release-gate.mjs"
 
 "area: ai":
   - changed-files:
       - any-glob-to-any-file:
           - "src/app/api/ai/**"
           - "src/lib/ai/**"
-
-"area: automation":
-  - changed-files:
-      - any-glob-to-any-file:
-          - "src/app/api/sequences/**"
-          - "src/app/api/content/**"
-          - "scripts/run-internal-runners.mjs"
 
 "area: carriers":
   - changed-files:
@@ -42,12 +58,7 @@
           - ".env.example"
           - "tsconfig.json"
 
-"area: ci":
-  - changed-files:
-      - any-glob-to-any-file:
-          - ".github/**"
-
-"dependencies":
+dependencies:
   - changed-files:
       - any-glob-to-any-file:
           - "package.json"
