@@ -2216,6 +2216,45 @@ function CreateLinearIssueDialog({
 
 // Placeholder views for other sections
 function AutomationView() {
+  type AutomationRow = {
+    id: string
+    name: string
+    trigger: string
+    isActive: boolean
+    executionCount: number
+    logs: Array<{ id: string; success: boolean; error: string | null; duration: number | null; createdAt: string }>
+  }
+
+  const [automations, setAutomations] = useState<AutomationRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchAutomations = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/automations')
+      const data = await response.json()
+      if (!response.ok || data.error) throw new Error(data.error || 'Failed to fetch automations')
+      setAutomations(data.automations || [])
+    } catch (error) {
+      toast({
+        title: 'Failed to load automations',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchAutomations()
+  }, [fetchAutomations])
+
+  const totalRuns = automations.reduce((sum, automation) => sum + automation.executionCount, 0)
+  const totalLogs = automations.reduce((sum, automation) => sum + automation.logs.length, 0)
+  const successfulLogs = automations.flatMap((automation) => automation.logs).filter((log) => log.success).length
+  const successRate = totalLogs > 0 ? `${Math.round((successfulLogs / totalLogs) * 100)}%` : '—'
+
   return (
     <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-screen">
       <div className="flex items-center justify-between">
@@ -2223,17 +2262,17 @@ function AutomationView() {
           <h1 className="text-2xl font-bold text-black">AI Automation</h1>
           <p className="text-gray-500">Automate your workflows with intelligent triggers</p>
         </div>
-        <Button className="btn-gold gap-2">
-          <Plus className="w-4 h-4" />
-          Create Automation
+        <Button className="btn-gold gap-2" onClick={() => void fetchAutomations()}>
+          <RefreshCw className="w-4 h-4" />
+          Refresh
         </Button>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { title: "Active Automations", value: 12, icon: Zap },
-          { title: "Runs This Month", value: 1234, icon: Activity },
-          { title: "AI Accuracy", value: "94%", icon: Brain },
+          { title: 'Active Automations', value: automations.filter((item) => item.isActive).length, icon: Zap },
+          { title: 'Total Runs', value: totalRuns, icon: Activity },
+          { title: 'Recent Success Rate', value: successRate, icon: Brain },
         ].map((stat) => (
           <Card key={stat.title} className="bg-white border-[#E2DDD4] shadow-sm">
             <CardContent className="p-4">
@@ -2250,6 +2289,61 @@ function AutomationView() {
           </Card>
         ))}
       </div>
+
+      <Card className="bg-white border-[#E2DDD4] shadow-sm">
+        <CardHeader>
+          <CardTitle>Automations</CardTitle>
+          <CardDescription>Live automations configured for your organization.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loading && <p className="text-sm text-gray-500">Loading automations...</p>}
+          {!loading && automations.length === 0 && <p className="text-sm text-gray-500">No automations found.</p>}
+          {!loading && automations.map((automation) => (
+            <div key={automation.id} className="border border-[#E2DDD4] rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-black">{automation.name}</p>
+                  <p className="text-xs text-gray-500">Trigger: {automation.trigger}</p>
+                </div>
+                <Badge variant={automation.isActive ? 'default' : 'secondary'}>
+                  {automation.isActive ? 'Active' : 'Paused'}
+                </Badge>
+              </div>
+              <p className="mt-2 text-xs text-gray-600">Runs: {automation.executionCount}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-white border-[#E2DDD4] shadow-sm">
+        <CardHeader>
+          <CardTitle>Recent Execution Logs</CardTitle>
+          <CardDescription>Latest run logs across all automations.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {automations
+            .flatMap((automation) => automation.logs.map((log) => ({ ...log, automationName: automation.name })))
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, 10)
+            .map((log) => (
+              <div key={log.id} className="flex items-center justify-between border border-[#E2DDD4] rounded-md p-2">
+                <div>
+                  <p className="text-sm font-medium text-black">{log.automationName}</p>
+                  <p className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                  <p className={cn('text-xs font-semibold', log.success ? 'text-green-600' : 'text-red-600')}>
+                    {log.success ? 'Success' : 'Failed'}
+                  </p>
+                  <p className="text-xs text-gray-500">{log.duration ?? 0}ms</p>
+                </div>
+              </div>
+            ))}
+          {!loading && automations.length > 0 && automations.every((automation) => automation.logs.length === 0) && (
+            <p className="text-sm text-gray-500">No execution logs yet.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
