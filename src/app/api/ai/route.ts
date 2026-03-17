@@ -20,6 +20,18 @@ function extractJsonObject(text: string | null): Record<string, unknown> | null 
   }
 }
 
+
+function isChatMessageArray(value: unknown): value is Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== 'object') return false
+    const candidate = item as { role?: unknown; content?: unknown }
+    return (
+      typeof candidate.content === 'string' &&
+      (candidate.role === 'system' || candidate.role === 'user' || candidate.role === 'assistant')
+    )
+  })
+}
+
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
   try {
@@ -192,7 +204,8 @@ Provide 3-5 insights in JSON format:
       
       case 'chat': {
         const { messages, context } = data
-        
+        const safeMessages = isChatMessageArray(messages) ? messages : []
+
         const systemPrompt = `You are an AI assistant for EliteCRM, a sophisticated CRM system.
 You help users manage leads, analyze data, and optimize their sales process.
 Be concise, professional, and actionable in your responses.
@@ -200,7 +213,7 @@ Context: ${JSON.stringify(context)}`
 
         const responseText = await zaiChatMessages([
           { role: 'system', content: systemPrompt },
-          ...messages,
+          ...safeMessages,
         ])
 
         return NextResponse.json({

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
         source: body.source || 'manual',
         status: 'new',
         estimatedValue: body.estimatedValue,
-        customFields: body.customFields,
+        customFields: body.customFields as Prisma.InputJsonValue | undefined,
         aiScore: 0, // Will be calculated by AI
       }
     })

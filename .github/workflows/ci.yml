@@ -62,8 +62,8 @@ jobs:
             bun install --frozen-lockfile
           fi
 
-      - name: Run typecheck
-        run: bun run typecheck
+      - name: Run typecheck (strict, no baseline)
+        run: bunx tsc --noEmit --project tsconfig.typecheck.json --pretty false
 
   test:
     name: test
