@@ -23,15 +23,14 @@ This document explains exactly what automation was added, what each workflow doe
 
 ### What it does
 
-Runs your baseline engineering quality gate on every change:
+Runs four independent status-check jobs on every change:
 
-1. **Checkout repository**
-2. **Setup Bun**
-3. **Install dependencies** (`bun install --frozen-lockfile`)
-4. **Generate Prisma client** (`bun run db:generate`)
-5. **Lint** (`bun run lint`)
-6. **Test** (`bun run test`)
-7. **Build** (`bun run build`)
+1. **`lint`**: install dependencies then run `bun run lint`
+2. **`typecheck`**: install dependencies then run `bun run typecheck`
+3. **`test`**: install dependencies then run `bun run test`
+4. **`build`**: install dependencies, run Prisma generate, then run `bun run build`
+
+Each job appears as a separate GitHub check, so branch protections can require them individually.
 
 ### Why this helps
 
@@ -88,7 +87,7 @@ Runs your baseline engineering quality gate on every change:
 2. Setup Bun
 3. Install dependencies
 4. Prisma generate
-5. Run lint + tests + build
+5. Run lint + typecheck + tests + build
 
 `create-alert-issue` job (only if health-check fails):
 
@@ -198,7 +197,10 @@ Recommended default loop:
 
 - Enable GitHub Actions for this repository.
 - Protect `main` and require at least:
-  - `CI / Lint, test, and build`
+  - `Status Checks / lint`
+  - `Status Checks / typecheck`
+  - `Status Checks / test`
+  - `Status Checks / build`
   - `Dependency Review / Block vulnerable dependency changes`
 - Keep GitHub Security features enabled so CodeQL results are visible.
 

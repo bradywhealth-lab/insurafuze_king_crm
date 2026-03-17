@@ -38,8 +38,8 @@ jobs:
       - name: Generate Prisma client
         run: bun run db:generate
 
-      - name: Run lint, tests, and build
-        run: bun run lint && bun run test && bun run build
+      - name: Run lint, typecheck, tests, and build
+        run: bun run lint && bun run typecheck && bun run test && bun run build
 
   create-alert-issue:
     name: Open or update maintenance incident issue
