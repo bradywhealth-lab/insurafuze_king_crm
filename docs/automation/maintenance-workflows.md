@@ -48,6 +48,7 @@ Each job appears as a separate GitHub check, so branch protections can require t
 
 - Uses `actions/dependency-review-action` to inspect dependency changes.
 - Fails PR checks when dependency updates introduce known vulnerabilities at **high severity or higher**.
+- If GitHub Dependency Graph is disabled, it skips gracefully instead of failing the whole PR.
 
 ### Why this helps
 
