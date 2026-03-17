@@ -26,7 +26,7 @@ This document explains exactly what automation was added, what each workflow doe
 Runs four independent status-check jobs on every change:
 
 1. **`lint`**: install dependencies then run `bun run lint`
-2. **`typecheck`**: install dependencies then run `bun run typecheck`
+2. **`typecheck`**: install dependencies then run `bun run typecheck` (using `tsconfig.typecheck.json` for the current enforceable app scope)
 3. **`test`**: install dependencies then run `bun run test`
 4. **`build`**: install dependencies, run Prisma generate, then run `bun run build`
 
