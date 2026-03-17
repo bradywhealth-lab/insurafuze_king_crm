@@ -1,0 +1,52 @@
+# Dependabot — auto-creates PRs for outdated & vulnerable dependencies.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    reviewers: []
+    labels:
+      - dependencies
+      - automated
+    groups:
+      # Group minor/patch Radix updates into one PR
+      radix:
+        patterns:
+          - "@radix-ui/*"
+        update-types:
+          - minor
+          - patch
+      # Group minor/patch TanStack updates
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+        update-types:
+          - minor
+          - patch
+      # Group Prisma updates (they release together)
+      prisma:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      # Group type definition updates
+      types:
+        patterns:
+          - "@types/*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+      - automated

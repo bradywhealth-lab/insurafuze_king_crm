@@ -1,0 +1,72 @@
+# ──────────────────────────────────────────────────────────────
+# CI — runs on every push and pull request
+# Validates code quality: lint, tests, Prisma generation, build.
+# ──────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/elite_crm_test
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+
+  prisma:
+    name: Prisma Generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run db:generate
+      - name: Check for uncommitted Prisma client changes
+        run: git diff --exit-code --name-only
+
+  build:
+    name: Build
+    needs: [lint, test, prisma]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Report standalone bundle size
+        run: |
+          echo "## Build Output" >> "$GITHUB_STEP_SUMMARY"
+          du -sh .next/standalone/ | awk '{print "Standalone: " $1}' >> "$GITHUB_STEP_SUMMARY"
+          du -sh .next/static/ | awk '{print "Static assets: " $1}' >> "$GITHUB_STEP_SUMMARY"

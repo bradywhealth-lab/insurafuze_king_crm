@@ -1,0 +1,109 @@
+# ──────────────────────────────────────────────────────────────
+# Code Health — weekly scheduled scan that reports on tech debt,
+# large files, TODO counts, test coverage, and dependency freshness.
+# ──────────────────────────────────────────────────────────────
+name: Code Health Report
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Every Monday 8 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    name: Generate health report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Count TODOs / FIXMEs / HACKs
+        id: todos
+        run: |
+          TODO_COUNT=$(grep -r 'TODO\|FIXME\|HACK\|XXX' src/ --include='*.ts' --include='*.tsx' -c 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}')
+          echo "count=$TODO_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Count source lines
+        id: loc
+        run: |
+          TS_LINES=$(find src -name '*.ts' -o -name '*.tsx' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+          TEST_FILES=$(find src -name '*.test.ts' -o -name '*.test.tsx' | wc -l)
+          ROUTE_FILES=$(find src/app/api -name 'route.ts' 2>/dev/null | wc -l)
+          COMPONENT_FILES=$(find src/components -name '*.tsx' 2>/dev/null | wc -l)
+          echo "ts_lines=$TS_LINES" >> "$GITHUB_OUTPUT"
+          echo "test_files=$TEST_FILES" >> "$GITHUB_OUTPUT"
+          echo "route_files=$ROUTE_FILES" >> "$GITHUB_OUTPUT"
+          echo "component_files=$COMPONENT_FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Find large files
+        id: large
+        run: |
+          LARGE=$(find src -type f \( -name '*.ts' -o -name '*.tsx' \) -exec wc -l {} + | sort -rn | head -11 | tail -10)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$LARGE" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Check outdated deps
+        id: outdated
+        run: |
+          OUTDATED=$(npx npm-check-updates --format lines 2>/dev/null | head -20 || echo "Check skipped")
+          echo "deps<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$OUTDATED" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests with summary
+        id: tests
+        run: |
+          bun run test 2>&1 | tail -20 > test-output.txt || true
+          echo "result<<EOF" >> "$GITHUB_OUTPUT"
+          cat test-output.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create health issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Weekly Code Health Report — ${new Date().toISOString().slice(0,10)}`;
+            const body = `## Code Health Report
+
+            ### Codebase Stats
+            | Metric | Value |
+            |--------|-------|
+            | TypeScript lines | ${{ steps.loc.outputs.ts_lines }} |
+            | Test files | ${{ steps.loc.outputs.test_files }} |
+            | API routes | ${{ steps.loc.outputs.route_files }} |
+            | Components | ${{ steps.loc.outputs.component_files }} |
+            | TODOs/FIXMEs/HACKs | ${{ steps.todos.outputs.count }} |
+
+            ### Largest Files (potential split candidates)
+            \`\`\`
+            ${{ steps.large.outputs.files }}
+            \`\`\`
+
+            ### Outdated Dependencies
+            \`\`\`
+            ${{ steps.outdated.outputs.deps }}
+            \`\`\`
+
+            ### Test Results
+            \`\`\`
+            ${{ steps.tests.outputs.result }}
+            \`\`\`
+
+            ---
+            _Auto-generated weekly by Code Health workflow. Close when reviewed._`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['maintenance', 'automated'],
+            });

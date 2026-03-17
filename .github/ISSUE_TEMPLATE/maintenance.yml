@@ -1,0 +1,37 @@
+name: Maintenance / Tech Debt
+description: Track refactoring, dependency updates, or infrastructure work
+labels: ["maintenance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for tech debt, refactoring, dependency updates, or infra work.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What needs to be done?
+      description: Describe the maintenance task.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - Refactor
+        - Dependency update
+        - Performance
+        - Security
+        - Infrastructure / CI
+        - Documentation
+        - Testing
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact if not addressed
+      description: What happens if this sits in the backlog?

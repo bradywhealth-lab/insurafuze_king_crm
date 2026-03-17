@@ -1,0 +1,55 @@
+# Label rules for actions/labeler — maps file globs to PR labels.
+
+"area: database":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "prisma/**"
+
+"area: api":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/app/api/**"
+
+"area: ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/components/**"
+          - "src/app/**/page.tsx"
+          - "src/app/globals.css"
+
+"area: ai":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/app/api/ai/**"
+          - "src/lib/ai/**"
+
+"area: automation":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/app/api/sequences/**"
+          - "src/app/api/content/**"
+          - "scripts/run-internal-runners.mjs"
+
+"area: carriers":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/app/api/carriers/**"
+
+"area: config":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.config.*"
+          - ".env.example"
+          - "tsconfig.json"
+
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+"dependencies":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "package.json"
+          - "bun.lock"
+          - "package-lock.json"

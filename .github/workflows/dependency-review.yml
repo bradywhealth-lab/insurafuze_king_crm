@@ -1,0 +1,51 @@
+# ──────────────────────────────────────────────────────────────
+# Dependency Review — blocks PRs that introduce known-vulnerable packages.
+# Also runs a weekly npm audit so you catch drift in main.
+# ──────────────────────────────────────────────────────────────
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 9 * * 1" # Every Monday 9 AM UTC
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Runs on PRs — flags new vulnerabilities introduced by the diff
+  review:
+    name: Review new dependencies
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always
+
+  # Weekly audit of main branch
+  audit:
+    name: Weekly security audit
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Run npm audit
+        run: |
+          npx audit-ci --high || true
+          echo "## Weekly Dependency Audit" >> "$GITHUB_STEP_SUMMARY"
+          npm audit --json 2>/dev/null | \
+            node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); \
+            const v=d.metadata?.vulnerabilities||{}; \
+            console.log('| Severity | Count |'); \
+            console.log('|----------|-------|'); \
+            Object.entries(v).forEach(([k,c])=>console.log('| '+k+' | '+c+' |'));" \
+            >> "$GITHUB_STEP_SUMMARY" || echo "Audit parse skipped" >> "$GITHUB_STEP_SUMMARY"

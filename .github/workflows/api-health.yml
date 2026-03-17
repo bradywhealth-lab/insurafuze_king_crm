@@ -1,0 +1,102 @@
+# ──────────────────────────────────────────────────────────────
+# API Health Check — boots the app against a real Postgres and
+# hits every API endpoint to verify nothing is broken.
+# Runs on PRs that touch API routes and weekly on main.
+# ──────────────────────────────────────────────────────────────
+name: API Health Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/app/api/**"
+      - "src/lib/**"
+      - "prisma/**"
+  schedule:
+    - cron: "0 7 * * 3" # Wednesday 7 AM UTC
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    name: API smoke tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: elite_crm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/elite_crm_test
+      INTERNAL_RUNNER_KEY: ci-test-key
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      SUPABASE_STORAGE_BUCKET: test
+      RUNNER_ORGANIZATION_ID: test-org
+      APP_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: npx prisma db push --accept-data-loss
+      - run: bun run db:seed || echo "Seed skipped — testing without data"
+
+      - name: Build and start
+        run: |
+          bun run build
+          NODE_ENV=production bun .next/standalone/server.js &
+          echo "Waiting for server..."
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/api/health && break || sleep 2
+          done
+
+      - name: Smoke-test endpoints
+        run: |
+          PASS=0; FAIL=0; RESULTS=""
+
+          check() {
+            local name=$1 method=$2 url=$3 expected=$4
+            STATUS=$(curl -sf -o /dev/null -w '%{http_code}' -X "$method" "$url" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "$expected" ]; then
+              RESULTS="$RESULTS\n| $name | $method | ✅ $STATUS |"
+              PASS=$((PASS+1))
+            else
+              RESULTS="$RESULTS\n| $name | $method | ❌ $STATUS (expected $expected) |"
+              FAIL=$((FAIL+1))
+            fi
+          }
+
+          check "Health"        GET  "http://localhost:3000/api/health"    200
+          check "Ready"         GET  "http://localhost:3000/api/ready"     200
+          check "Stats"         GET  "http://localhost:3000/api/stats"     200
+          check "Leads"         GET  "http://localhost:3000/api/leads"     200
+          check "Pipeline"      GET  "http://localhost:3000/api/pipeline"  200
+          check "Carriers"      GET  "http://localhost:3000/api/carriers"  200
+          check "Sequences"     GET  "http://localhost:3000/api/sequences" 200
+          check "Content"       GET  "http://localhost:3000/api/content"   200
+          check "Activities"    GET  "http://localhost:3000/api/activities" 200
+          check "AI"            GET  "http://localhost:3000/api/ai"        200
+          check "Bookings"      GET  "http://localhost:3000/api/bookings"  200
+
+          echo "## API Smoke Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Endpoint | Method | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|--------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo -e "$RESULTS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Passed:** $PASS | **Failed:** $FAIL" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::$FAIL endpoint(s) returned unexpected status codes"
+            exit 1
+          fi

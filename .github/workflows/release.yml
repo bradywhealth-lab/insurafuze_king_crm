@@ -1,0 +1,91 @@
+# ──────────────────────────────────────────────────────────────
+# Release — creates a GitHub release with auto-generated notes
+# when you push a version tag (e.g. v0.3.0).
+#
+# Usage:  git tag v0.3.0 && git push origin v0.3.0
+# ──────────────────────────────────────────────────────────────
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-gate:
+    name: Release gate checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+  create-release:
+    name: Create GitHub Release
+    needs: release-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 1,
+            });
+            const since = releases[0]?.tag_name || '';
+            const tag = context.ref.replace('refs/tags/', '');
+
+            let notes = `# ${tag}\n\n`;
+            if (since) {
+              const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                basehead: `${since}...${tag}`,
+              });
+              const categories = { feat: [], fix: [], chore: [], other: [] };
+              for (const c of comparison.commits) {
+                const msg = c.commit.message.split('\n')[0];
+                const match = msg.match(/^(feat|fix|chore|docs|refactor|perf|test|ci)(\(.+?\))?:\s*/);
+                const cat = match ? (['feat','fix','chore'].includes(match[1]) ? match[1] : 'other') : 'other';
+                categories[cat].push(`- ${msg} (${c.sha.slice(0,7)})`);
+              }
+              if (categories.feat.length)  notes += `## Features\n${categories.feat.join('\n')}\n\n`;
+              if (categories.fix.length)   notes += `## Fixes\n${categories.fix.join('\n')}\n\n`;
+              if (categories.chore.length) notes += `## Maintenance\n${categories.chore.join('\n')}\n\n`;
+              if (categories.other.length) notes += `## Other\n${categories.other.join('\n')}\n\n`;
+              notes += `**Full diff:** [\`${since}...${tag}\`](${context.payload.repository.html_url}/compare/${since}...${tag})`;
+            } else {
+              notes += `Initial release.`;
+            }
+            return notes;
+
+      - name: Create release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: tag,
+              body: ${{ steps.changelog.outputs.result }},
+              draft: false,
+              prerelease: tag.includes('-'),
+            });

@@ -1,0 +1,62 @@
+# ──────────────────────────────────────────────────────────────
+# Database Migration Safety — detects Prisma schema changes in PRs
+# and validates that migrations are consistent.
+# ──────────────────────────────────────────────────────────────
+name: DB Migration Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "prisma/schema.prisma"
+      - "prisma/migrations/**"
+      - "prisma/rls.sql"
+      - "prisma/init.sql"
+
+jobs:
+  migration-check:
+    name: Validate Prisma schema
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: elite_crm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/elite_crm_test
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Validate schema can be pushed
+        run: npx prisma db push --accept-data-loss --force-reset
+
+      - name: Validate Prisma client generation
+        run: bun run db:generate
+
+      - name: Check for schema drift
+        run: |
+          npx prisma migrate diff \
+            --from-schema-datamodel prisma/schema.prisma \
+            --to-url "$DATABASE_URL" \
+            --exit-code || echo "::warning::Schema drift detected — migrations may need updating"
+
+      - name: Summarize schema changes
+        run: |
+          echo "## Prisma Schema Changes" >> "$GITHUB_STEP_SUMMARY"
+          echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+          git diff origin/main -- prisma/schema.prisma | head -100 >> "$GITHUB_STEP_SUMMARY" || echo "No diff against main" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

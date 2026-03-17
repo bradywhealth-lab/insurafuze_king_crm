@@ -1,0 +1,118 @@
+# ──────────────────────────────────────────────────────────────
+# Lighthouse — weekly performance & accessibility audit.
+# Boots the app, runs Lighthouse CI, posts results as an issue.
+# ──────────────────────────────────────────────────────────────
+name: Lighthouse Audit
+
+on:
+  schedule:
+    - cron: "0 10 * * 1" # Every Monday 10 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    name: Run Lighthouse
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: elite_crm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/elite_crm_test
+      INTERNAL_RUNNER_KEY: test-key
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: placeholder
+      SUPABASE_STORAGE_BUCKET: test
+      RUNNER_ORGANIZATION_ID: test-org
+      APP_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+
+      - name: Push schema & seed
+        run: |
+          npx prisma db push --accept-data-loss
+          bun run db:seed || echo "Seed skipped"
+
+      - name: Build & start server
+        run: |
+          bun run build
+          NODE_ENV=production bun .next/standalone/server.js &
+          sleep 5
+          curl -sf http://localhost:3000/api/health || echo "Health check failed"
+
+      - name: Run Lighthouse
+        id: lh
+        run: |
+          npx -y lighthouse http://localhost:3000 \
+            --output=json --output=html \
+            --output-path=./lighthouse \
+            --chrome-flags="--headless --no-sandbox" \
+            --only-categories=performance,accessibility,best-practices,seo || true
+
+          if [ -f lighthouse.report.json ]; then
+            PERF=$(cat lighthouse.report.json | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(Math.round((d.categories.performance?.score||0)*100))")
+            A11Y=$(cat lighthouse.report.json | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(Math.round((d.categories.accessibility?.score||0)*100))")
+            BP=$(cat lighthouse.report.json | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(Math.round((d.categories['best-practices']?.score||0)*100))")
+            SEO=$(cat lighthouse.report.json | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(Math.round((d.categories.seo?.score||0)*100))")
+          else
+            PERF=0; A11Y=0; BP=0; SEO=0
+          fi
+          echo "perf=$PERF" >> "$GITHUB_OUTPUT"
+          echo "a11y=$A11Y" >> "$GITHUB_OUTPUT"
+          echo "bp=$BP" >> "$GITHUB_OUTPUT"
+          echo "seo=$SEO" >> "$GITHUB_OUTPUT"
+
+      - name: Post Lighthouse issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            function badge(score) {
+              if (score >= 90) return '🟢';
+              if (score >= 50) return '🟠';
+              return '🔴';
+            }
+            const p = parseInt('${{ steps.lh.outputs.perf }}');
+            const a = parseInt('${{ steps.lh.outputs.a11y }}');
+            const b = parseInt('${{ steps.lh.outputs.bp }}');
+            const s = parseInt('${{ steps.lh.outputs.seo }}');
+
+            const body = `## Lighthouse Audit Results
+
+            | Category | Score |
+            |----------|-------|
+            | ${badge(p)} Performance | **${p}** |
+            | ${badge(a)} Accessibility | **${a}** |
+            | ${badge(b)} Best Practices | **${b}** |
+            | ${badge(s)} SEO | **${s}** |
+
+            _Scores: 🟢 90+ | 🟠 50-89 | 🔴 <50_
+
+            ---
+            _Auto-generated weekly by Lighthouse workflow. Close when reviewed._`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Lighthouse Report — ${new Date().toISOString().slice(0,10)}`,
+              body,
+              labels: ['performance', 'automated'],
+            });
