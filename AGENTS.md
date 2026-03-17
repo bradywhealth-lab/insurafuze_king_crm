@@ -1,0 +1,42 @@
+# AGENTS.md
+
+## Cursor Cloud specific instructions
+
+### Overview
+
+Elite CRM — a multi-tenant, AI-first CRM platform for insurance broker workflows. Single Next.js 16 app (App Router) with Prisma 7 ORM + PostgreSQL, Bun runtime. See `README.md` for quick-start and `package.json` for all scripts.
+
+### Services
+
+| Service | Port | How to start |
+|---|---|---|
+| PostgreSQL | 5432 | `sudo service postgresql start` (must be running before Next.js) |
+| Next.js dev server | 3000 | `bun run dev` |
+
+### Non-obvious notes
+
+- **Prisma config (`prisma.config.ts`)** falls back to SQLite (`file:./prisma/dev.db`) when `DATABASE_URL` is unset. Always ensure `DATABASE_URL` is exported in the shell or set in `.env` before running Prisma commands.
+- **`.env` auto-loading**: Next.js reads `.env` at dev startup, but Prisma CLI commands (e.g. `prisma db push`) require `DATABASE_URL` set via `.env` _or_ exported as a shell env var. If Prisma falls back to SQLite, `DATABASE_URL` is not being picked up — export it explicitly.
+- **`bun run test`** runs Vitest. Tests mock `@/lib/db` and do not require a live database.
+- **`bun run lint`** runs ESLint 9 with Next.js config. No warnings expected on a clean tree.
+- **Database bootstrap**: After installing PostgreSQL and creating the `elite_crm` database, run `npx prisma db push` then `npx prisma db seed` to populate demo data. Optionally run `node scripts/apply-init-sql.mjs` to apply RLS policies.
+- **Supabase / AI keys**: Placeholder values in `.env` are sufficient for the app to start. Carrier document uploads and AI features will degrade without real keys.
+- **`postinstall` script** runs `prisma generate` automatically after `bun install`.
+
+### Environment variables
+
+When no injected secrets are present, the cloud agent bootstraps a local PostgreSQL instance and writes a `.env` with `DATABASE_URL=postgresql://elite_user:elite_pass@localhost:5432/elite_crm` plus placeholder values. This is enough for the app to start, lint, and pass tests.
+
+For full functionality (AI routes, Supabase storage, etc.), add the following secrets via the Cursor Secrets panel:
+
+| Secret | Required for |
+|---|---|
+| `DATABASE_URL` | Core app (local PG is used if absent) |
+| `SUPABASE_URL` | Carrier document uploads |
+| `SUPABASE_SERVICE_ROLE_KEY` | Carrier document uploads |
+| `OPENAI_API_KEY` | AI features (or use `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`) |
+| `INTERNAL_RUNNER_KEY` | Internal runner endpoint auth |
+| `APP_BASE_URL` | Runner scripts |
+| `RUNNER_ORGANIZATION_ID` | Runner scripts |
+
+Optional: `LINEAR_API_KEY`, `SCRAPINGBEE_API_KEY`, `FIRECRAWL_API_KEY`, `SCRAPER_PROXY_URL_TEMPLATE`, `TRUST_PROXY`, `DEV_DEFAULT_ORG_ID`.
