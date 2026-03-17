@@ -315,8 +315,8 @@ export async function POST(request: NextRequest) {
           successfulRows,
           failedRows,
           duplicateRows,
-          errors: errors.length > 0 ? (errors as Prisma.InputJsonValue) : null,
-          warnings: warnings.length > 0 ? (warnings as Prisma.InputJsonValue) : null,
+          errors: errors.length > 0 ? (errors as Prisma.InputJsonValue) : undefined,
+          warnings: warnings.length > 0 ? (warnings as Prisma.InputJsonValue) : undefined,
           completedAt: new Date(),
         },
       })

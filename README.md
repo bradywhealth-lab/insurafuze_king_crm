@@ -72,6 +72,21 @@ bun start
 
 Open [http://localhost:3000](http://localhost:3000) to see your application running.
 
+## ✅ Type safety policy
+
+Type safety is strictly enforced in local development and CI:
+
+- `bun run typecheck` runs `tsc --noEmit --project tsconfig.typecheck.json`.
+- There is no TypeScript-error allowlist/baseline: any TS error fails the check.
+- The CI `typecheck` job is a required status check and fails on any TypeScript error.
+
+Run this before opening a PR:
+
+```bash
+bun run typecheck
+```
+
+
 ## 🤖 Powered by Z.ai
 
 This scaffold is optimized for use with [Z.ai](https://chat.z.ai) - your AI assistant for:

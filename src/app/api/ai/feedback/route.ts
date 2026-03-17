@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
         entityId,
         rating,
         feedback: feedback || null,
-        corrections: corrections || null,
+        corrections: (corrections ?? undefined) as Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined,
       },
     })
 

@@ -125,6 +125,9 @@ type KnowledgeCitation = {
   chunkIndex: number
   snippet: string
 }
+function isRetrievedChunk(value: RetrievedChunk | null): value is RetrievedChunk {
+  return value !== null
+}
 
 function tokenize(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9]{3,}/g) || []).slice(0, 500)
@@ -177,7 +180,7 @@ function retrieveTopChunks(
   if (queryTokens.length === 0) return []
   const queryTokenSet = new Set(queryTokens)
 
-  const scored: RetrievedChunk[] = chunks
+  const scored = chunks
     .map((chunk) => {
       const chunkTokens = tokenize(chunk.content)
       if (chunkTokens.length === 0) return null
@@ -202,7 +205,7 @@ function retrieveTopChunks(
         content: chunk.content,
       }
     })
-    .filter((c): c is RetrievedChunk => !!c)
+    .filter(isRetrievedChunk)
     .sort((a, b) => b.score - a.score)
 
   return scored

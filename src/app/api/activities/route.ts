@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
         type: body.type,
         title: body.title,
         description: body.description,
-        metadata: body.metadata,
+        metadata: body.metadata as Prisma.InputJsonValue | undefined,
         aiSummary: body.aiSummary
       },
       include: {
