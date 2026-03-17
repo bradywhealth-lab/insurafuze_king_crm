@@ -141,6 +141,10 @@ This scaffold includes a comprehensive set of modern web development tools:
 Built with ❤️ for the developer community. Supercharged by [Z.ai](https://chat.z.ai) 🚀
 # insurafuze_king_crm
 
+## Release checklist
+
+- Run `bun run build` before release. The build must fail on TypeScript errors (no `ignoreBuildErrors` bypasses).
+
 ## Automation and maintenance
 
 For the full solo-maintainer operations guide and every GitHub workflow explanation, see:

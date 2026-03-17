@@ -109,7 +109,7 @@ function fallbackPlaybook(lead: {
 
 type RetrievedChunk = {
   score: number
-  carrierId: string | null
+  carrierId: string
   carrierName: string
   documentId: string
   documentName: string
