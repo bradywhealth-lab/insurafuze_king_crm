@@ -18,11 +18,13 @@ const baselineErrors = new Set([
   "src/app/api/upload/route.ts|TS2322|Type 'InputJsonValue | null' is not assignable to type 'NullableJsonNullValueInput | InputJsonValue | undefined'.",
 ]);
 
-const result = spawnSync(
-  "bunx",
-  ["tsc", "--noEmit", "--project", "tsconfig.typecheck.json", "--pretty", "false"],
-  { encoding: "utf8" },
-);
+const tscArgs = ["tsc", "--noEmit", "--project", "tsconfig.typecheck.json", "--pretty", "false"];
+
+let result = spawnSync("bunx", tscArgs, { encoding: "utf8" });
+
+if (result.error?.code === "ENOENT") {
+  result = spawnSync("npx", tscArgs, { encoding: "utf8" });
+}
 
 const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
 const matches = [...output.matchAll(/^(.+)\(\d+,\d+\): error (TS\d+): (.+)$/gm)];
