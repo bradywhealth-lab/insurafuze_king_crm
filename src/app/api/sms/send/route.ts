@@ -51,8 +51,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TODO: Get Twilio credentials from Integration (type: twilio), send via Twilio API.
-    // For now: persist message and thread only (no actual send).
     let thread = await db.messageThread.findFirst({
       where: { organizationId, leadId, primaryChannel: 'sms' },
     })
@@ -72,33 +70,52 @@ export async function POST(request: NextRequest) {
         threadId: thread.id,
         channel: 'sms',
         direction: 'outbound',
-        status: 'pending', // → sent when Twilio confirms
+        status: 'pending', // → sent/queued when Twilio confirms
         body: content,
         toAddress: lead.phone,
         fromAddress: null, // set from Twilio config
       },
     })
 
-    await db.messageThread.update({
-      where: { id: thread.id },
-      data: { lastMessageAt: new Date() },
-    })
+    // Attempt Twilio send + bookkeeping; mark message as failed on error
+    try {
+      // TODO: Get Twilio credentials from Integration (type: twilio), send via Twilio API.
+      // When implemented, update message status based on Twilio response here.
 
-    await db.activity.create({
-      data: {
-        organizationId,
-        leadId,
-        type: 'sms',
-        title: 'SMS sent',
-        description: content.slice(0, 100) + (content.length > 100 ? '…' : ''),
-        metadata: { messageId: message.id },
-      },
-    })
+      await db.messageThread.update({
+        where: { id: thread.id },
+        data: { lastMessageAt: new Date() },
+      })
+
+      await db.activity.create({
+        data: {
+          organizationId,
+          leadId,
+          type: 'sms',
+          title: 'SMS sent',
+          description: content.slice(0, 100) + (content.length > 100 ? '…' : ''),
+          metadata: { messageId: message.id },
+        },
+      })
+    } catch (sendError) {
+      console.error('SMS send/bookkeeping error:', sendError)
+      const failedMessage = await db.message.update({
+        where: { id: message.id },
+        data: { status: 'failed' },
+      })
+      return NextResponse.json({
+        messageId: failedMessage.id,
+        threadId: thread.id,
+        status: failedMessage.status,
+        error: 'SMS processing failed',
+        details: sendError instanceof Error ? sendError.message : 'Unknown error',
+      }, { status: 502 })
+    }
 
     return NextResponse.json({
       messageId: message.id,
       threadId: thread.id,
-      status: 'pending',
+      status: message.status,
       message: 'Message recorded. Connect Twilio in Settings → Integrations to send live SMS.',
     })
     })
