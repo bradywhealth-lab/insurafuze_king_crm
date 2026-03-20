@@ -6,6 +6,14 @@ import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
 
 const updateLeadSchema = z.object({
+  firstName: z.string().max(120).optional(),
+  lastName: z.string().max(120).optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().max(50).optional().or(z.literal('')),
+  company: z.string().max(160).optional().or(z.literal('')),
+  title: z.string().max(160).optional().or(z.literal('')),
+  source: z.string().max(80).optional().or(z.literal('')),
+  estimatedValue: z.number().nullable().optional(),
   status: z.string().max(80).optional(),
   aiNextAction: z.string().max(500).optional(),
   touch: z.boolean().optional(),
@@ -59,6 +67,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const updated = await db.lead.update({
       where: { id },
       data: {
+        firstName: typeof body.firstName === 'string' ? body.firstName || null : undefined,
+        lastName: typeof body.lastName === 'string' ? body.lastName || null : undefined,
+        email: typeof body.email === 'string' ? body.email || null : undefined,
+        phone: typeof body.phone === 'string' ? body.phone || null : undefined,
+        company: typeof body.company === 'string' ? body.company || null : undefined,
+        title: typeof body.title === 'string' ? body.title || null : undefined,
+        source: typeof body.source === 'string' ? body.source || null : undefined,
+        estimatedValue: body.estimatedValue !== undefined ? body.estimatedValue : undefined,
         status: typeof body.status === 'string' ? body.status : undefined,
         aiNextAction: typeof body.aiNextAction === 'string' ? body.aiNextAction : undefined,
         lastContactedAt: body.touch ? new Date() : undefined,

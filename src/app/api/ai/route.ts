@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { withRequestOrgContext } from '@/lib/request-context'
 import { zaiChatJson, zaiChatMessages } from '@/lib/zai'
 
 const aiRequestSchema = z.object({
@@ -20,30 +21,19 @@ function extractJsonObject(text: string | null): Record<string, unknown> | null 
   }
 }
 
-
-function isChatMessageArray(value: unknown): value is Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
-  return Array.isArray(value) && value.every((item) => {
-    if (!item || typeof item !== 'object') return false
-    const candidate = item as { role?: unknown; content?: unknown }
-    return (
-      typeof candidate.content === 'string' &&
-      (candidate.role === 'system' || candidate.role === 'user' || candidate.role === 'assistant')
-    )
-  })
-}
-
 // AI API using z-ai-web-dev-sdk
 export async function POST(request: NextRequest) {
   try {
     const limited = enforceRateLimit(request, { key: 'ai-generate', limit: 50, windowMs: 60_000 })
     if (limited) return limited
-    const parsed = await parseJsonBody(request, aiRequestSchema)
-    if (!parsed.success) return parsed.response
-    const { action, data } = parsed.data
+    return withRequestOrgContext(request, async () => {
+      const parsed = await parseJsonBody(request, aiRequestSchema)
+      if (!parsed.success) return parsed.response
+      const { action, data } = parsed.data
 
-    switch (action) {
-      case 'score-lead': {
-        const prompt = `Analyze this lead and provide a quality score from 0-100 based on their profile.
+      switch (action) {
+        case 'score-lead': {
+          const prompt = `Analyze this lead and provide a quality score from 0-100 based on their profile.
         
 Lead Information:
 - Name: ${data.firstName} ${data.lastName}
@@ -68,24 +58,24 @@ Respond in JSON format:
   "tags": ["tag1", "tag2"]
 }`
 
-        const aiText = await zaiChatJson(prompt)
-        const aiResult = extractJsonObject(aiText)
-        if (aiResult) {
-          return NextResponse.json(aiResult)
+          const aiText = await zaiChatJson(prompt)
+          const aiResult = extractJsonObject(aiText)
+          if (aiResult) {
+            return NextResponse.json(aiResult)
+          }
+
+          return NextResponse.json({
+            score: 50,
+            confidence: 0.5,
+            insights: ['Unable to analyze lead'],
+            nextAction: 'Manual review recommended',
+            tags: [],
+          })
         }
 
-        return NextResponse.json({
-          score: 50,
-          confidence: 0.5,
-          insights: ['Unable to analyze lead'],
-          nextAction: 'Manual review recommended',
-          tags: []
-        })
-      }
-      
-      case 'generate-content': {
-        const { topic, platform, tone } = data
-        const prompt = `Create a ${platform} post about: ${topic}
+        case 'generate-content': {
+          const { topic, platform, tone } = data
+          const prompt = `Create a ${platform} post about: ${topic}
         
 Requirements:
 - Platform: ${platform}
@@ -102,27 +92,27 @@ Provide the response in JSON format:
   "bestTimeToPost": "<suggested time>"
 }`
 
-        const aiText = await zaiChatJson(prompt)
-        const aiResult = extractJsonObject(aiText)
-        if (aiResult) {
+          const aiText = await zaiChatJson(prompt)
+          const aiResult = extractJsonObject(aiText)
+          if (aiResult) {
+            return NextResponse.json({
+              ...aiResult,
+              aiGenerated: true,
+            })
+          }
+
           return NextResponse.json({
-            ...aiResult,
-            aiGenerated: true
+            title: topic,
+            content: `Check out our latest insights on ${topic}! #Business #Growth`,
+            hashtags: ['#Business', '#Growth'],
+            bestTimeToPost: '9:00 AM',
+            aiGenerated: true,
           })
         }
 
-        return NextResponse.json({
-          title: topic,
-          content: `Check out our latest insights on ${topic}! #Business #Growth`,
-          hashtags: ['#Business', '#Growth'],
-          bestTimeToPost: '9:00 AM',
-          aiGenerated: true
-        })
-      }
-
-      case 'generate-media': {
-        const { topic, platform, style = 'clean, premium, high-converting' } = data
-        const prompt = `Create a concise, production-ready image prompt for a ${platform} marketing creative.
+        case 'generate-media': {
+          const { topic, platform, style = 'clean, premium, high-converting' } = data
+          const prompt = `Create a concise, production-ready image prompt for a ${platform} marketing creative.
 Topic: ${topic}
 Style: ${style}
 
@@ -133,25 +123,25 @@ Return JSON:
   "cta": "<call to action>"
 }`
 
-        const aiText = await zaiChatJson(prompt)
-        const aiResult = extractJsonObject(aiText)
-        if (aiResult) {
+          const aiText = await zaiChatJson(prompt)
+          const aiResult = extractJsonObject(aiText)
+          if (aiResult) {
+            return NextResponse.json({
+              ...aiResult,
+              aiGenerated: true,
+            })
+          }
+
           return NextResponse.json({
-            ...aiResult,
-            aiGenerated: true
+            imagePrompt: `Premium ${platform} visual for ${topic}, clean layout, strong headline, brand-forward composition`,
+            caption: `Elevate your strategy with ${topic}.`,
+            cta: 'Book a consultation',
+            aiGenerated: true,
           })
         }
 
-        return NextResponse.json({
-          imagePrompt: `Premium ${platform} visual for ${topic}, clean layout, strong headline, brand-forward composition`,
-          caption: `Elevate your strategy with ${topic}.`,
-          cta: 'Book a consultation',
-          aiGenerated: true
-        })
-      }
-      
-      case 'generate-insights': {
-        const prompt = `Analyze this CRM data and provide actionable insights:
+        case 'generate-insights': {
+          const prompt = `Analyze this CRM data and provide actionable insights:
         
 Total Leads: ${data.totalLeads}
 Pipeline Value: $${data.pipelineValue}
@@ -173,63 +163,62 @@ Provide 3-5 insights in JSON format:
   ]
 }`
 
-        const aiText = await zaiChatJson(prompt)
-        const aiResult = extractJsonObject(aiText)
-        if (aiResult) {
-          return NextResponse.json(aiResult)
+          const aiText = await zaiChatJson(prompt)
+          const aiResult = extractJsonObject(aiText)
+          if (aiResult) {
+            return NextResponse.json(aiResult)
+          }
+
+          return NextResponse.json({
+            insights: [
+              {
+                type: 'recommendation',
+                category: 'leads',
+                title: 'Follow-up with high-score leads',
+                description: 'You have leads with scores above 80 that haven\'t been contacted recently.',
+                confidence: 0.9,
+                actionable: true,
+              },
+              {
+                type: 'trend',
+                category: 'pipeline',
+                title: 'Pipeline growing steadily',
+                description: 'Your pipeline value has increased 15% this month.',
+                confidence: 0.85,
+                actionable: false,
+              },
+            ],
+          })
         }
 
-        // Fallback insights
-        return NextResponse.json({
-          insights: [
-            {
-              type: 'recommendation',
-              category: 'leads',
-              title: 'Follow-up with high-score leads',
-              description: 'You have leads with scores above 80 that haven\'t been contacted recently.',
-              confidence: 0.9,
-              actionable: true
-            },
-            {
-              type: 'trend',
-              category: 'pipeline',
-              title: 'Pipeline growing steadily',
-              description: 'Your pipeline value has increased 15% this month.',
-              confidence: 0.85,
-              actionable: false
-            }
-          ]
-        })
-      }
-      
-      case 'chat': {
-        const { messages, context } = data
-        const safeMessages = isChatMessageArray(messages) ? messages : []
+        case 'chat': {
+          const { messages, context } = data
 
-        const systemPrompt = `You are an AI assistant for EliteCRM, a sophisticated CRM system.
+          const systemPrompt = `You are an AI assistant for EliteCRM, a sophisticated CRM system.
 You help users manage leads, analyze data, and optimize their sales process.
 Be concise, professional, and actionable in your responses.
 Context: ${JSON.stringify(context)}`
 
-        const responseText = await zaiChatMessages([
-          { role: 'system', content: systemPrompt },
-          ...safeMessages,
-        ])
+          const responseText = await zaiChatMessages([
+            { role: 'system', content: systemPrompt },
+            ...messages,
+          ])
 
-        return NextResponse.json({
-          message: responseText || 'AI assistant is unavailable right now. Continue with manual review and CRM workflows.',
-          success: true
-        })
+          return NextResponse.json({
+            message: responseText || 'AI assistant is unavailable right now. Continue with manual review and CRM workflows.',
+            success: true,
+          })
+        }
+
+        default:
+          return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
       }
-      
-      default:
-        return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-    }
+    })
   } catch (error) {
     console.error('AI API error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'AI processing failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 })
   }
 }

@@ -1,210 +1,448 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
-import { randomBytes, pbkdf2Sync, createHash } from 'node:crypto'
+import { AUTH_COOKIE_NAME, SESSION_TTL_MS, buildSessionCookieOptions, createSessionToken, ensureUniqueOrganizationSlug, getCurrentSessionFromToken, getCurrentUserFromCookies, hashPassword, hashSessionToken, invalidateSessionToken, readSessionClientDetails, slugifyOrganizationName, verifyPassword } from '@/lib/auth'
+import { parseJsonBody } from '@/lib/validation'
+import { enforceRateLimit } from '@/lib/rate-limit'
+import { enforceSameOrigin } from '@/lib/security'
+import { z } from 'zod'
 
-function hashPassword(password: string, salt: string): string {
-  // Derive a password hash using PBKDF2 to make brute-force attacks more expensive.
-  // Note: increase the iteration count over time as hardware gets faster.
-  const iterations = 100_000
-  const keyLength = 32 // 256-bit derived key
-  const derivedKey = pbkdf2Sync(password, salt, iterations, keyLength, 'sha256')
-  return derivedKey.toString('hex')
+function readUserPreferences(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function generateToken(): string {
-  return randomBytes(48).toString('base64url')
-}
+const authSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('signup'),
+    name: z.string().min(1).max(120),
+    email: z.string().email(),
+    password: z.string().min(8).max(200),
+    organizationName: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal('login'),
+    email: z.string().email(),
+    password: z.string().min(1).max(200),
+  }),
+  z.object({
+    action: z.literal('change-password'),
+    currentPassword: z.string().min(1).max(200),
+    newPassword: z.string().min(8).max(200),
+  }),
+  z.object({
+    action: z.literal('accept-invite'),
+    email: z.string().email(),
+    token: z.string().min(16).max(200),
+    name: z.string().min(1).max(120).optional(),
+    password: z.string().min(8).max(200),
+  }),
+])
 
-function generateSalt(): string {
-  return randomBytes(16).toString('hex')
-}
+export async function GET() {
+  try {
+    const current = await getCurrentUserFromCookies()
+    if (!current) {
+      return NextResponse.json({ authenticated: false }, { status: 401 })
+    }
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'org'
+    return NextResponse.json({
+      authenticated: true,
+      user: current.user,
+      mustChangePassword: readUserPreferences(current.user.preferences).requirePasswordChange === true,
+      session: {
+        id: current.sessionId,
+        expiresAt: current.expiresAt,
+      },
+    })
+  } catch (error) {
+    console.error('Auth GET error:', error)
+    return NextResponse.json({ error: 'Failed to load auth session' }, { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { action } = body
+    const csrfBlocked = enforceSameOrigin(request)
+    if (csrfBlocked) return csrfBlocked
 
-    if (action === 'signup') {
-      const { email, password, name, orgName } = body
-      if (!email?.trim() || !password || password.length < 6) {
-        return NextResponse.json({ error: 'Email and password (min 6 chars) are required' }, { status: 400 })
-      }
+    const parsed = await parseJsonBody(request, authSchema)
+    if (!parsed.success) return parsed.response
+    const data = parsed.data
+    const sessionClient = readSessionClientDetails(request)
 
-      const normalizedEmail = email.trim().toLowerCase()
-      const existing = await db.user.findFirst({ where: { email: normalizedEmail } })
+    const rateLimitKey =
+      data.action === 'login'
+        ? `auth-login:${data.email.toLowerCase()}`
+        : data.action === 'signup'
+          ? `auth-signup:${data.email.toLowerCase()}`
+          : 'auth-change-password'
+
+    const limited = enforceRateLimit(request, {
+      key: rateLimitKey,
+      limit: data.action === 'login' ? 10 : data.action === 'signup' ? 5 : 10,
+      windowMs: 15 * 60_000,
+    })
+    if (limited) return limited
+
+    if (data.action === 'signup') {
+      const existing = await db.user.findUnique({
+        where: { email: data.email.toLowerCase() },
+        select: { id: true },
+      })
       if (existing) {
-        return NextResponse.json({ error: 'An account with this email already exists' }, { status: 409 })
+        return NextResponse.json({ error: 'An account with that email already exists.' }, { status: 409 })
       }
 
-      const salt = generateSalt()
-      const passwordHash = hashPassword(password, salt)
-      const organizationName = orgName?.trim() || `${(name || email.split('@')[0])}'s Agency`
-      const baseSlug = slugify(organizationName)
-      const slug = `${baseSlug}-${randomBytes(3).toString('hex')}`
+      const slug = await ensureUniqueOrganizationSlug(slugifyOrganizationName(data.organizationName))
+      const passwordHash = hashPassword(data.password)
 
-      const org = await db.organization.create({
-        data: {
-          name: organizationName,
-          slug,
-          plan: 'free',
-        },
-      })
+      const result = await db.$transaction(async (tx) => {
+        const organization = await tx.organization.create({
+          data: {
+            name: data.organizationName.trim(),
+            slug,
+            plan: 'pro',
+          },
+        })
 
-      const user = await db.user.create({
-        data: {
-          email: normalizedEmail,
-          name: name?.trim() || null,
-          role: 'owner',
-          organizationId: org.id,
-          preferences: { passwordHash, salt },
-        },
-      })
+        const user = await tx.user.create({
+          data: {
+            email: data.email.toLowerCase(),
+            passwordHash,
+            name: data.name.trim(),
+            role: 'owner',
+            organizationId: organization.id,
+          },
+          include: {
+            organization: {
+              select: { id: true, name: true, slug: true, plan: true },
+            },
+          },
+        })
 
-      const token = generateToken()
-      await db.userSession.create({
-        data: {
-          userId: user.id,
-          token,
-          isActive: true,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
+        await tx.teamMember.create({
+          data: {
+            organizationId: organization.id,
+            userId: user.id,
+            role: 'owner',
+            isActive: true,
+          },
+        })
+
+        const token = createSessionToken()
+        const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+        await tx.userSession.create({
+          data: {
+            userId: user.id,
+            token: hashSessionToken(token),
+            isActive: true,
+            expiresAt,
+            lastActiveAt: new Date(),
+            device: sessionClient.device,
+            browser: sessionClient.browser,
+            os: sessionClient.os,
+            ip: sessionClient.ip,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: organization.id,
+            action: 'create',
+            entityType: 'user',
+            entityId: user.id,
+            actorId: user.id,
+            actorEmail: user.email,
+            description: 'Created owner account and initialized workspace',
+            metadata: {
+              organizationSlug: organization.slug,
+              plan: organization.plan,
+            },
+          },
+        })
+
+        return { user, token, expiresAt }
       })
 
       const response = NextResponse.json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role, organizationId: org.id },
-        organization: { id: org.id, name: org.name, slug: org.slug },
+        authenticated: true,
+        user: result.user,
+        mustChangePassword: false,
       })
-      response.cookies.set('session-token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60,
-        path: '/',
-      })
+      response.cookies.set(AUTH_COOKIE_NAME, result.token, buildSessionCookieOptions(result.expiresAt))
       return response
     }
 
-    if (action === 'signin') {
-      const { email, password } = body
-      if (!email?.trim() || !password) {
-        return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
+    if (data.action === 'change-password') {
+      const token = request.cookies.get(AUTH_COOKIE_NAME)?.value?.trim()
+      if (!token) {
+        return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
       }
 
-      const normalizedEmail = email.trim().toLowerCase()
-      const user = await db.user.findFirst({
-        where: { email: normalizedEmail },
-        include: { organization: true },
+      const current = await getCurrentSessionFromToken(token)
+      const session = current
+        ? await db.userSession.findFirst({
+            where: { id: current.sessionId },
+            include: { user: true },
+          })
+        : null
+
+      if (!session?.user || !verifyPassword(data.currentPassword, session.user.passwordHash)) {
+        return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 401 })
+      }
+
+      const currentPreferences = readUserPreferences(session.user.preferences)
+      delete currentPreferences.requirePasswordChange
+
+      const nextToken = createSessionToken()
+      const nextExpiresAt = new Date(Date.now() + SESSION_TTL_MS)
+
+      await db.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: session.user.id },
+          data: {
+            passwordHash: hashPassword(data.newPassword),
+            preferences: currentPreferences as Prisma.InputJsonValue,
+          },
+        })
+
+        await tx.userSession.updateMany({
+          where: { userId: session.user.id, isActive: true },
+          data: { isActive: false },
+        })
+
+        await tx.userSession.create({
+          data: {
+            userId: session.user.id,
+            token: hashSessionToken(nextToken),
+            isActive: true,
+            expiresAt: nextExpiresAt,
+            lastActiveAt: new Date(),
+            device: sessionClient.device,
+            browser: sessionClient.browser,
+            os: sessionClient.os,
+            ip: sessionClient.ip,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: session.user.organizationId,
+            action: 'update',
+            entityType: 'user',
+            entityId: session.user.id,
+            actorId: session.user.id,
+            actorEmail: session.user.email,
+            description: 'Updated account password and rotated active sessions',
+          },
+        })
+      })
+
+      const response = NextResponse.json({ success: true, mustChangePassword: false })
+      response.cookies.set(AUTH_COOKIE_NAME, nextToken, buildSessionCookieOptions(nextExpiresAt))
+      return response
+    }
+
+    if (data.action === 'accept-invite') {
+      const user = await db.user.findUnique({
+        where: { email: data.email.toLowerCase() },
+        include: {
+          organization: {
+            select: { id: true, name: true, slug: true, plan: true },
+          },
+        },
       })
       if (!user) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+        return NextResponse.json({ error: 'Invitation not found.' }, { status: 404 })
       }
 
-      const prefs = (user.preferences || {}) as Record<string, string>
-      const storedHash = prefs.passwordHash
-      const salt = prefs.salt
-      if (!storedHash || !salt) {
-        return NextResponse.json({ error: 'Account not set up for password login' }, { status: 401 })
+      const preferences = readUserPreferences(user.preferences)
+      const inviteTokenHash = typeof preferences.inviteTokenHash === 'string' ? preferences.inviteTokenHash : null
+      const inviteTokenExpiresAt = typeof preferences.inviteTokenExpiresAt === 'string' ? preferences.inviteTokenExpiresAt : null
+      if (
+        !inviteTokenHash ||
+        inviteTokenHash !== hashSessionToken(data.token) ||
+        !inviteTokenExpiresAt ||
+        Number.isNaN(Date.parse(inviteTokenExpiresAt)) ||
+        new Date(inviteTokenExpiresAt) <= new Date()
+      ) {
+        return NextResponse.json({ error: 'Invitation is invalid or expired.' }, { status: 401 })
       }
 
-      const attemptHash = hashPassword(password, salt)
-      if (attemptHash !== storedHash) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
-      }
+      delete preferences.inviteTokenHash
+      delete preferences.inviteTokenExpiresAt
+      delete preferences.requirePasswordChange
+      preferences.invitedAcceptedAt = new Date().toISOString()
 
-      const token = generateToken()
-      await db.userSession.create({
-        data: {
-          userId: user.id,
-          token,
-          isActive: true,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
+      const token = createSessionToken()
+      const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+
+      const result = await db.$transaction(async (tx) => {
+        const updatedUser = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            name: data.name?.trim() || user.name,
+            passwordHash: hashPassword(data.password),
+            preferences: preferences as Prisma.InputJsonValue,
+          },
+          include: {
+            organization: {
+              select: { id: true, name: true, slug: true, plan: true },
+            },
+          },
+        })
+
+        await tx.userSession.updateMany({
+          where: { userId: user.id, isActive: true },
+          data: { isActive: false },
+        })
+
+        await tx.userSession.create({
+          data: {
+            userId: user.id,
+            token: hashSessionToken(token),
+            isActive: true,
+            expiresAt,
+            lastActiveAt: new Date(),
+            device: sessionClient.device,
+            browser: sessionClient.browser,
+            os: sessionClient.os,
+            ip: sessionClient.ip,
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: user.organizationId,
+            action: 'accept_invite',
+            entityType: 'user',
+            entityId: user.id,
+            actorId: user.id,
+            actorEmail: user.email,
+            description: 'Accepted workspace invitation and activated account',
+          },
+        })
+
+        return updatedUser
       })
 
       const response = NextResponse.json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role, organizationId: user.organizationId },
-        organization: user.organization ? { id: user.organization.id, name: user.organization.name, slug: user.organization.slug } : null,
+        authenticated: true,
+        user: result,
+        mustChangePassword: false,
       })
-      response.cookies.set('session-token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60,
-        path: '/',
-      })
+      response.cookies.set(AUTH_COOKIE_NAME, token, buildSessionCookieOptions(expiresAt))
       return response
     }
 
-    if (action === 'signout') {
-      const token = request.cookies.get('session-token')?.value
-      if (token) {
-        await db.userSession.updateMany({ where: { token }, data: { isActive: false } })
-      }
-      const response = NextResponse.json({ success: true })
-      response.cookies.set('session-token', '', { maxAge: 0, path: '/' })
-      return response
+    const user = await db.user.findUnique({
+      where: { email: data.email.toLowerCase() },
+      include: {
+        organization: {
+          select: { id: true, name: true, slug: true, plan: true },
+        },
+      },
+    })
+
+    if (!user || !verifyPassword(data.password, user.passwordHash)) {
+      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
-    if (action === 'me') {
-      const token = request.cookies.get('session-token')?.value
-      if (!token) return NextResponse.json({ user: null })
+    const token = createSessionToken()
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+    await db.userSession.create({
+      data: {
+        userId: user.id,
+        token: hashSessionToken(token),
+        isActive: true,
+        expiresAt,
+        lastActiveAt: new Date(),
+        device: sessionClient.device,
+        browser: sessionClient.browser,
+        os: sessionClient.os,
+        ip: sessionClient.ip,
+      },
+    })
 
-      const session = await db.userSession.findFirst({
-        where: { token, isActive: true, expiresAt: { gt: new Date() } },
-        include: { user: { include: { organization: true } } },
-      })
-      if (!session?.user) return NextResponse.json({ user: null })
+    await db.auditLog.create({
+      data: {
+        organizationId: user.organizationId,
+        action: 'login',
+        entityType: 'user_session',
+        entityId: user.id,
+        actorId: user.id,
+        actorEmail: user.email,
+        description: 'Signed in to the workspace',
+      },
+    })
 
-      return NextResponse.json({
-        user: { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role, organizationId: session.user.organizationId },
-        organization: session.user.organization ? { id: session.user.organization.id, name: session.user.organization.name, slug: session.user.organization.slug } : null,
-      })
-    }
-
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    const response = NextResponse.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        organizationId: user.organizationId,
+        organization: user.organization,
+        preferences: user.preferences,
+      },
+      mustChangePassword: readUserPreferences(user.preferences).requirePasswordChange === true,
+    })
+    response.cookies.set(AUTH_COOKIE_NAME, token, buildSessionCookieOptions(expiresAt))
+    return response
   } catch (error) {
-    console.error('Auth error:', error)
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 500 })
+    console.error('Auth POST error:', error)
+    return NextResponse.json({ error: 'Failed to complete auth request' }, { status: 500 })
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function DELETE(request: NextRequest) {
   try {
-    const token = request.cookies.get('session-token')?.value
-    if (!token) {
-      if (process.env.NODE_ENV !== 'production' && process.env.DEV_DEFAULT_ORG_ID) {
-        const org = await db.organization.findUnique({
-          where: { id: process.env.DEV_DEFAULT_ORG_ID },
+    const csrfBlocked = enforceSameOrigin(request)
+    if (csrfBlocked) return csrfBlocked
+
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value
+    if (token) {
+      const tokenHash = hashSessionToken(token)
+      const session = await db.userSession.findFirst({
+        where: {
+          token: tokenHash,
+          isActive: true,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              organizationId: true,
+            },
+          },
+        },
+      })
+
+      await invalidateSessionToken(token)
+
+      if (session?.user) {
+        await db.auditLog.create({
+          data: {
+            organizationId: session.user.organizationId,
+            action: 'logout',
+            entityType: 'user_session',
+            entityId: session.id,
+            actorId: session.user.id,
+            actorEmail: session.user.email,
+            description: 'Signed out of the workspace',
+          },
         })
-        if (org) {
-          const devUser = await db.user.findFirst({ where: { organizationId: org.id } })
-          return NextResponse.json({
-            user: devUser
-              ? { id: devUser.id, email: devUser.email, name: devUser.name, role: devUser.role, organizationId: devUser.organizationId }
-              : { id: 'dev', email: 'dev@local', name: 'Dev User', role: 'owner', organizationId: org.id },
-            organization: { id: org.id, name: org.name, slug: org.slug },
-          })
-        }
       }
-      return NextResponse.json({ user: null })
     }
 
-    const session = await db.userSession.findFirst({
-      where: { token, isActive: true, expiresAt: { gt: new Date() } },
-      include: { user: { include: { organization: true } } },
-    })
-    if (!session?.user) return NextResponse.json({ user: null })
-
-    return NextResponse.json({
-      user: { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role, organizationId: session.user.organizationId },
-      organization: session.user.organization ? { id: session.user.organization.id, name: session.user.organization.name, slug: session.user.organization.slug } : null,
-    })
+    const response = NextResponse.json({ success: true })
+    response.cookies.set(AUTH_COOKIE_NAME, '', buildSessionCookieOptions(new Date(0)))
+    return response
   } catch (error) {
-    console.error('Auth GET error:', error)
-    return NextResponse.json({ user: null })
+    console.error('Auth DELETE error:', error)
+    return NextResponse.json({ error: 'Failed to sign out' }, { status: 500 })
   }
 }

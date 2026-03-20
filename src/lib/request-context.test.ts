@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { hashSessionToken } from '@/lib/security'
 
 const mockDb = vi.hoisted(() => ({
   userSession: {
@@ -54,6 +55,19 @@ describe('getOrgContext', () => {
       organizationId: 'org_1',
       userId: 'user_1',
     })
+    expect(mockDb.userSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        token: hashSessionToken('token_1'),
+        isActive: true,
+        expiresAt: { gt: expect.any(Date) },
+      }),
+      select: expect.objectContaining({
+        id: true,
+        expiresAt: true,
+        lastActiveAt: true,
+        user: expect.any(Object),
+      }),
+    }))
   })
 
   it('rejects unauthenticated spoofed org and user headers', async () => {

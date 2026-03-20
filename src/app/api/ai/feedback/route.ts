@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { withRequestOrgContext } from '@/lib/request-context'
 
 const feedbackSchema = z.object({
   entityType: z.string().min(1),
@@ -17,21 +17,23 @@ export async function POST(request: NextRequest) {
   try {
     const limited = enforceRateLimit(request, { key: 'ai-feedback', limit: 60, windowMs: 60_000 })
     if (limited) return limited
-    const parsed = await parseJsonBody(request, feedbackSchema)
-    if (!parsed.success) return parsed.response
-    const { entityType, entityId, rating, feedback, corrections } = parsed.data
+    return withRequestOrgContext(request, async () => {
+      const parsed = await parseJsonBody(request, feedbackSchema)
+      if (!parsed.success) return parsed.response
+      const { entityType, entityId, rating, feedback, corrections } = parsed.data
 
-    const saved = await db.aIFeedback.create({
-      data: {
-        entityType,
-        entityId,
-        rating,
-        feedback: feedback || null,
-        corrections: (corrections ?? undefined) as Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined,
-      },
+      const saved = await db.aIFeedback.create({
+        data: {
+          entityType,
+          entityId,
+          rating,
+          feedback: feedback || null,
+          corrections: corrections || null,
+        },
+      })
+
+      return NextResponse.json({ feedback: saved })
     })
-
-    return NextResponse.json({ feedback: saved })
   } catch (error) {
     console.error('AI feedback error:', error)
     return NextResponse.json({ error: 'Failed to save AI feedback' }, { status: 500 })
