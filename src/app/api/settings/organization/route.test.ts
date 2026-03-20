@@ -1,0 +1,92 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+
+const mockDb = vi.hoisted(() => ({
+  organization: {
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  auditLog: {
+    create: vi.fn(),
+  },
+}))
+
+vi.mock('@/lib/db', () => ({
+  db: mockDb,
+}))
+
+vi.mock('@/lib/request-context', () => ({
+  withRequestOrgContext: vi.fn(async (_request: NextRequest, handler: (context: { organizationId: string; userId: string }) => Promise<unknown>) =>
+    handler({ organizationId: 'org_1', userId: 'user_1' }),
+  ),
+}))
+
+vi.mock('@/lib/rate-limit', () => ({
+  enforceRateLimit: vi.fn(() => null),
+}))
+
+import { GET, PATCH } from './route'
+
+describe('/api/settings/organization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('loads organization settings', async () => {
+    mockDb.organization.findUnique.mockResolvedValueOnce({
+      id: 'org_1',
+      name: 'Insurafuze',
+      slug: 'insurafuze',
+      logo: null,
+      plan: 'pro',
+      settings: {
+        sessionTimeoutMinutes: 90,
+        twoFactorRequired: true,
+      },
+      _count: {
+        leads: 42,
+        users: 3,
+        teamMembers: 3,
+      },
+    })
+
+    const response = await GET(new NextRequest('http://localhost/api/settings/organization'))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.organization.slug).toBe('insurafuze')
+    expect(json.organization.twoFactorRequired).toBe(true)
+  })
+
+  it('updates organization settings and logs the change', async () => {
+    mockDb.organization.findUnique.mockResolvedValueOnce({
+      settings: { sessionTimeoutMinutes: 60 },
+    })
+    mockDb.organization.update.mockResolvedValueOnce({
+      id: 'org_1',
+      name: 'Insurafuze Elite',
+      slug: 'insurafuze',
+      logo: null,
+      plan: 'enterprise',
+      settings: { sessionTimeoutMinutes: 120, twoFactorRequired: true },
+    })
+
+    const request = new NextRequest('http://localhost/api/settings/organization', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: 'Insurafuze Elite',
+        plan: 'enterprise',
+        sessionTimeoutMinutes: 120,
+        twoFactorRequired: true,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+    const response = await PATCH(request)
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.organization.plan).toBe('enterprise')
+    expect(mockDb.auditLog.create).toHaveBeenCalledOnce()
+  })
+})

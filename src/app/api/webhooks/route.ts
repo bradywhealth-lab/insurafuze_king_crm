@@ -1,49 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
-import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { z } from 'zod'
 
-const VALID_EVENTS = [
-  'lead.created',
-  'lead.updated',
-  'lead.deleted',
-  'lead.status_changed',
-  'lead.score_changed',
-  'pipeline.item_moved',
-  'pipeline.deal_won',
-  'pipeline.deal_lost',
-  'activity.created',
-  'booking.created',
-  'upload.completed',
-  'sequence.enrolled',
-  'content.published',
-] as const
-
-const createWebhookSchema = z.object({
-  name: z.string().min(1).max(200),
+const webhookSchema = z.object({
+  name: z.string().min(1).max(120),
   url: z.string().url(),
-  events: z.array(z.string()).min(1),
+  events: z.array(z.string().min(1)).min(1),
   secret: z.string().max(200).optional(),
-})
-
-const updateWebhookSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1).max(200).optional(),
-  url: z.string().url().optional(),
-  events: z.array(z.string()).min(1).optional(),
   isActive: z.boolean().optional(),
 })
 
 export async function GET(request: NextRequest) {
   try {
-    return await withRequestOrgContext(request, async (context) => {
-      const webhooks = await db.webhook.findMany({
+    return withRequestOrgContext(request, async (context) => {
+      const hooks = await db.webhook.findMany({
         where: { organizationId: context.organizationId },
         orderBy: { createdAt: 'desc' },
       })
-      return NextResponse.json({ webhooks, availableEvents: VALID_EVENTS })
+      return NextResponse.json({
+        webhooks: hooks.map((hook) => ({
+          ...hook,
+          events: Array.isArray(hook.events) ? hook.events : [],
+        })),
+      })
     })
   } catch (error) {
     console.error('Webhooks GET error:', error)
@@ -53,24 +36,24 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(request, { key: 'webhooks-create', limit: 30, windowMs: 60_000 })
+    const limited = enforceRateLimit(request, { key: 'webhooks-create', limit: 40, windowMs: 60_000 })
     if (limited) return limited
-    return await withRequestOrgContext(request, async (context) => {
-      const parsed = await parseJsonBody(request, createWebhookSchema)
+    return withRequestOrgContext(request, async (context) => {
+      const parsed = await parseJsonBody(request, webhookSchema)
       if (!parsed.success) return parsed.response
 
-      const { name, url, events, secret } = parsed.data
-      const webhook = await db.webhook.create({
+      const hook = await db.webhook.create({
         data: {
           organizationId: context.organizationId,
-          name: name.trim(),
-          url: url.trim(),
-          events: events.filter((e) => (VALID_EVENTS as readonly string[]).includes(e)),
-          secret: secret || null,
-          isActive: true,
+          name: parsed.data.name.trim(),
+          url: parsed.data.url.trim(),
+          events: parsed.data.events as Prisma.InputJsonValue,
+          secret: parsed.data.secret?.trim() || null,
+          isActive: parsed.data.isActive ?? true,
         },
       })
-      return NextResponse.json({ webhook })
+
+      return NextResponse.json({ webhook: hook })
     })
   } catch (error) {
     console.error('Webhooks POST error:', error)
@@ -82,23 +65,26 @@ export async function PATCH(request: NextRequest) {
   try {
     const limited = enforceRateLimit(request, { key: 'webhooks-update', limit: 60, windowMs: 60_000 })
     if (limited) return limited
-    return await withRequestOrgContext(request, async (context) => {
-      const parsed = await parseJsonBody(request, updateWebhookSchema)
+    return withRequestOrgContext(request, async (context) => {
+      const id = request.nextUrl.searchParams.get('id')
+      if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+
+      const parsed = await parseJsonBody(request, webhookSchema.partial())
       if (!parsed.success) return parsed.response
 
-      const { id, ...updates } = parsed.data
-      const existing = await db.webhook.findFirst({
+      const updateData: Prisma.WebhookUpdateManyMutationInput = {}
+      if (parsed.data.name !== undefined) updateData.name = parsed.data.name.trim()
+      if (parsed.data.url !== undefined) updateData.url = parsed.data.url.trim()
+      if (parsed.data.events !== undefined) updateData.events = parsed.data.events as Prisma.InputJsonValue
+      if (parsed.data.secret !== undefined) updateData.secret = parsed.data.secret?.trim() || null
+      if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive
+
+      const updated = await db.webhook.updateMany({
         where: { id, organizationId: context.organizationId },
+        data: updateData,
       })
-      if (!existing) return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
-
-      const data: Record<string, unknown> = {}
-      if (updates.name !== undefined) data.name = updates.name.trim()
-      if (updates.url !== undefined) data.url = updates.url.trim()
-      if (updates.events !== undefined) data.events = updates.events.filter((e) => (VALID_EVENTS as readonly string[]).includes(e))
-      if (updates.isActive !== undefined) data.isActive = updates.isActive
-
-      const webhook = await db.webhook.update({ where: { id }, data })
+      if (updated.count === 0) return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
+      const webhook = await db.webhook.findUnique({ where: { id } })
       return NextResponse.json({ webhook })
     })
   } catch (error) {
@@ -109,19 +95,16 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const limited = enforceRateLimit(request, { key: 'webhooks-delete', limit: 30, windowMs: 60_000 })
+    const limited = enforceRateLimit(request, { key: 'webhooks-delete', limit: 60, windowMs: 60_000 })
     if (limited) return limited
-    return await withRequestOrgContext(request, async (context) => {
-      const { searchParams } = new URL(request.url)
-      const id = searchParams.get('id')
+    return withRequestOrgContext(request, async (context) => {
+      const id = request.nextUrl.searchParams.get('id')
       if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
-      const existing = await db.webhook.findFirst({
+      const deleted = await db.webhook.deleteMany({
         where: { id, organizationId: context.organizationId },
       })
-      if (!existing) return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
-
-      await db.webhook.delete({ where: { id } })
+      if (deleted.count === 0) return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
       return NextResponse.json({ success: true })
     })
   } catch (error) {

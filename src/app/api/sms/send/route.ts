@@ -4,6 +4,7 @@ import { withRequestOrgContext } from '@/lib/request-context'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { buildTwilioStatusCallbackUrl, getTwilioConfigForOrganization, sendTwilioSms } from '@/lib/twilio'
 
 const smsSchema = z.object({
   leadId: z.string().min(1),
@@ -51,8 +52,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TODO: Get Twilio credentials from Integration (type: twilio), send via Twilio API.
-    // For now: persist message and thread only (no actual send).
     let thread = await db.messageThread.findFirst({
       where: { organizationId, leadId, primaryChannel: 'sms' },
     })
@@ -72,12 +71,40 @@ export async function POST(request: NextRequest) {
         threadId: thread.id,
         channel: 'sms',
         direction: 'outbound',
-        status: 'pending', // → sent when Twilio confirms
+        status: 'pending',
         body: content,
         toAddress: lead.phone,
-        fromAddress: null, // set from Twilio config
+        fromAddress: null,
       },
     })
+
+    const twilioConfig = await getTwilioConfigForOrganization(organizationId)
+    if (twilioConfig) {
+      const callbackUrl = buildTwilioStatusCallbackUrl({
+        appBaseUrl: process.env.APP_BASE_URL,
+        organizationId,
+        messageId: message.id,
+        threadId: thread.id,
+      })
+
+      const twilioMessage = await sendTwilioSms({
+        config: twilioConfig,
+        to: lead.phone,
+        body: content,
+        mediaUrl,
+        statusCallbackUrl: callbackUrl || undefined,
+      })
+
+      await db.message.update({
+        where: { id: message.id },
+        data: {
+          status: twilioMessage.status === 'sent' ? 'sent' : 'pending',
+          fromAddress: twilioMessage.from,
+          toAddress: twilioMessage.to,
+          sentAt: new Date(),
+        },
+      })
+    }
 
     await db.messageThread.update({
       where: { id: thread.id },
@@ -98,8 +125,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       messageId: message.id,
       threadId: thread.id,
-      status: 'pending',
-      message: 'Message recorded. Connect Twilio in Settings → Integrations to send live SMS.',
+      status: twilioConfig ? 'sent' : 'pending',
+      message: twilioConfig
+        ? 'Message sent via Twilio.'
+        : 'Message recorded. Connect Twilio in Settings → Integrations to send live SMS.',
     })
     })
   } catch (error) {

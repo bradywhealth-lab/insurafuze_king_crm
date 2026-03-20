@@ -1,19 +1,49 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
 const rlsTxStorage = new AsyncLocalStorage<PrismaClient>()
+let usingLocalSqlite = false
+
+function buildPostgresConnectionString(databaseUrl: string): string {
+  const url = new URL(databaseUrl)
+  const shouldRelaxTls =
+    process.env.NODE_ENV !== 'production' &&
+    url.hostname.includes('supabase.com')
+
+  if (shouldRelaxTls) {
+    url.searchParams.set('sslmode', 'no-verify')
+  }
+
+  return url.toString()
+}
 
 function createPrismaClient(): PrismaClient {
   const databaseUrl = process.env.DATABASE_URL?.trim()
-  if (!databaseUrl) {
-    throw new Error('Missing DATABASE_URL for Prisma PostgreSQL adapter')
+  const localSqlitePath = path.join(process.cwd(), 'prisma', 'dev.db')
+  const shouldUseLocalSqlite =
+    process.env.NODE_ENV !== 'production' &&
+    !databaseUrl &&
+    existsSync(localSqlitePath)
+
+  if (shouldUseLocalSqlite) {
+    usingLocalSqlite = true
+    const adapter = new PrismaBetterSqlite3({ url: `file:${localSqlitePath}` })
+    return new PrismaClient({ adapter, log: ['query'] })
   }
-  const adapter = new PrismaPg({ connectionString: databaseUrl })
+
+  if (!databaseUrl) {
+    throw new Error('Missing DATABASE_URL for Prisma adapter')
+  }
+  usingLocalSqlite = false
+  const adapter = new PrismaPg({ connectionString: buildPostgresConnectionString(databaseUrl) })
   return new PrismaClient({ adapter, log: ['query'] })
 }
 
@@ -44,6 +74,9 @@ export async function withOrgRlsTransaction<T>(
   organizationId: string,
   callback: () => Promise<T>,
 ): Promise<T> {
+  if (usingLocalSqlite) {
+    return callback()
+  }
   return getBaseClient().$transaction(async tx => {
     await tx.$executeRaw`SELECT set_config('app.current_organization_id', ${organizationId}, true)`
     return rlsTxStorage.run(tx as PrismaClient, callback)
@@ -54,6 +87,9 @@ export async function withSessionTokenRlsTransaction<T>(
   sessionToken: string,
   callback: () => Promise<T>,
 ): Promise<T> {
+  if (usingLocalSqlite) {
+    return callback()
+  }
   return getBaseClient().$transaction(async tx => {
     await tx.$executeRaw`SELECT set_config('app.current_session_token', ${sessionToken}, true)`
     return rlsTxStorage.run(tx as PrismaClient, callback)

@@ -3,11 +3,24 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "EliteCRM - AI-Powered Insurance CRM",
-  description: "Elite AI-powered CRM for life and health insurance brokers. Manage leads, pipeline, automation, and more.",
-  keywords: ["CRM", "insurance", "AI", "lead management", "pipeline", "automation"],
+  title: "InsuraFuze CRM",
+  description: "InsuraFuze is an AI-first insurance CRM for lead capture, pipeline management, quoting workflows, carrier intelligence, and team operations.",
+  keywords: ["InsuraFuze", "insurance CRM", "AI CRM", "broker workflow", "lead management", "pipeline", "quoting", "carrier intelligence"],
+  authors: [{ name: "InsuraFuze" }],
   icons: {
-    icon: "/logo.svg",
+    icon: "/favicon.ico",
+  },
+  openGraph: {
+    title: "InsuraFuze CRM",
+    description: "AI-first CRM infrastructure for modern insurance teams.",
+    url: "https://insurafuze-king-crm.vercel.app",
+    siteName: "InsuraFuze",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "InsuraFuze CRM",
+    description: "AI-first CRM infrastructure for modern insurance teams.",
   },
 };
 

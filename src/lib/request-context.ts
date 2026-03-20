@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
 import { db, withOrgRlsTransaction, withSessionTokenRlsTransaction } from '@/lib/db'
+import { getCurrentSessionFromToken } from '@/lib/auth'
+import { enforceSameOrigin, isUnsafeMethod } from '@/lib/security'
 
 type OrgContext = {
   organizationId: string
@@ -36,18 +38,7 @@ function isTrustedInternalRunnerRequest(request: NextRequest): boolean {
 export async function getOrgContext(request: NextRequest): Promise<OrgContext | null> {
   const token = readSessionTokenFromRequest(request)
   if (token) {
-    const session = await withSessionTokenRlsTransaction(token, async () =>
-      db.userSession.findFirst({
-        where: {
-          token,
-          isActive: true,
-          expiresAt: { gt: new Date() },
-        },
-        select: {
-          user: { select: { id: true, organizationId: true } },
-        },
-      }),
-    )
+    const session = await withSessionTokenRlsTransaction(token, async () => getCurrentSessionFromToken(token))
     if (session?.user) {
       return { organizationId: session.user.organizationId, userId: session.user.id }
     }
@@ -68,6 +59,9 @@ export async function getOrgContext(request: NextRequest): Promise<OrgContext | 
 
   // Development-only fallback to keep local workflows usable before auth rollout.
   if (process.env.NODE_ENV !== 'production') {
+    const allowBypass = process.env.ALLOW_DEV_AUTH_BYPASS?.trim() === 'true'
+    if (!allowBypass) return null
+
     const fallbackOrgId = process.env.DEV_DEFAULT_ORG_ID?.trim()
     if (fallbackOrgId) {
       const existing = await withOrgRlsTransaction(fallbackOrgId, async () =>
@@ -87,6 +81,11 @@ export async function withRequestOrgContext<T>(
   request: NextRequest,
   handler: (context: OrgContext) => Promise<T>,
 ): Promise<T | NextResponse> {
+  if (isUnsafeMethod(request.method)) {
+    const csrfBlocked = enforceSameOrigin(request)
+    if (csrfBlocked) return csrfBlocked
+  }
+
   const context = await getOrgContext(request)
   if (!context) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return withOrgRlsTransaction(context.organizationId, () => handler(context))
