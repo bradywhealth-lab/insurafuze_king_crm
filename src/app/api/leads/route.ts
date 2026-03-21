@@ -46,7 +46,7 @@ function extractProfession(company: string | null, title: string | null): string
     developer: 'Technology',
     engineer: 'Technology',
     'it ': 'Technology',
-    information technology: 'Technology',
+    'information technology': 'Technology',
     finance: 'Finance',
     financial: 'Finance',
     banking: 'Finance',
