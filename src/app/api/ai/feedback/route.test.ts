@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { POST } from './route'
 import { db } from '@/lib/db'
+import { recordEventOutcome } from '@/lib/ai-tracking'
 
 // Mock db
 vi.mock('@/lib/db', () => ({
@@ -27,14 +28,10 @@ vi.mock('@/lib/rate-limit', () => ({
 
 // Mock validation
 vi.mock('@/lib/validation', () => ({
-  parseJsonBody: vi.fn(async (_, schema) => {
-    return { success: true, data: {
-      entityType: 'sms_sent',
-      entityId: 'lead-1',
-      eventId: 'event-1',
-      rating: 5,
-      feedback: 'Great response!',
-    }}
+  parseJsonBody: vi.fn(async (request, schema) => {
+    // Parse the body from the request
+    const body = await request.json() as any
+    return { success: true, data: body }
   }),
 }))
 
@@ -52,8 +49,7 @@ describe('/api/ai/feedback enhanced', () => {
     const mockFeedback = { id: 'feedback-1', rating: 5 }
 
     ;(db.aIFeedback.create as any).mockResolvedValue(mockFeedback)
-    const { recordEventOutcome } = await import('@/lib/ai-tracking')
-    vi.mocked(recordEventOutcome).mockResolvedValue({})
+    vi.mocked(recordEventOutcome).mockResolvedValue({} as any)
 
     const request = new Request('http://localhost:3000/api/ai/feedback', {
       method: 'POST',
@@ -64,9 +60,9 @@ describe('/api/ai/feedback enhanced', () => {
         rating: 5,
         feedback: 'Great response!',
       }),
-    })
+    }) as any
 
-    const response = await POST(request as any)
+    const response = await POST(request)
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -83,8 +79,7 @@ describe('/api/ai/feedback enhanced', () => {
     const mockFeedback = { id: 'feedback-1', rating: 1 }
 
     ;(db.aIFeedback.create as any).mockResolvedValue(mockFeedback)
-    const { recordEventOutcome } = await import('@/lib/ai-tracking')
-    vi.mocked(recordEventOutcome).mockResolvedValue({})
+    vi.mocked(recordEventOutcome).mockResolvedValue({} as any)
 
     const request = new Request('http://localhost:3000/api/ai/feedback', {
       method: 'POST',
@@ -95,9 +90,9 @@ describe('/api/ai/feedback enhanced', () => {
         rating: 1,
         feedback: 'Not good',
       }),
-    })
+    }) as any
 
-    const response = await POST(request as any)
+    const response = await POST(request)
 
     expect(response.status).toBe(200)
     expect(recordEventOutcome).toHaveBeenCalledWith(
@@ -109,8 +104,7 @@ describe('/api/ai/feedback enhanced', () => {
     const mockFeedback = { id: 'feedback-1', rating: 3 }
 
     ;(db.aIFeedback.create as any).mockResolvedValue(mockFeedback)
-    const { recordEventOutcome } = await import('@/lib/ai-tracking')
-    vi.mocked(recordEventOutcome).mockResolvedValue({})
+    vi.mocked(recordEventOutcome).mockResolvedValue({} as any)
 
     const request = new Request('http://localhost:3000/api/ai/feedback', {
       method: 'POST',
@@ -121,9 +115,9 @@ describe('/api/ai/feedback enhanced', () => {
         rating: 3,
         feedback: 'Okay',
       }),
-    })
+    }) as any
 
-    const response = await POST(request as any)
+    const response = await POST(request)
 
     expect(response.status).toBe(200)
     expect(recordEventOutcome).toHaveBeenCalledWith(
