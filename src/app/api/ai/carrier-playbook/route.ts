@@ -6,6 +6,7 @@ import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
 import { zaiChatJson } from '@/lib/zai'
 import { buildKnowledgeCitations, type KnowledgeCitation, type PlaybookCitation } from './citations'
+import { trackAIEvent } from '@/lib/ai-tracking'
 
 const carrierPlaybookSchema = z.object({
   leadId: z.string().min(1),
@@ -420,6 +421,18 @@ Respond as strict JSON only using this schema:
         )
         parsed.citations = normalizeCitations(parsed.citations, knowledgeContext)
 
+        // Track playbook generation
+        await trackAIEvent({
+          userId: context.userId || 'unknown',
+          organizationId: context.organizationId,
+          eventType: 'playbook_generated',
+          entityType: 'lead',
+          entityId: leadId,
+          input: { leadId, extraContext },
+          output: { playbook: parsed, source: 'llm' },
+          leadProfession: lead.title || undefined,
+        }).catch(console.error)
+
         return NextResponse.json({ playbook: parsed, source: 'llm' })
       }
     } catch (error) {
@@ -446,6 +459,19 @@ Respond as strict JSON only using this schema:
       topChunks.length,
       topChunks[0]?.score || 0
     )
+
+    // Track fallback playbook generation
+    await trackAIEvent({
+      userId: context.userId || 'unknown',
+      organizationId: context.organizationId,
+      eventType: 'playbook_generated',
+      entityType: 'lead',
+      entityId: leadId,
+      input: { leadId, extraContext },
+      output: { playbook: fallback, source: 'fallback' },
+      leadProfession: lead.title || undefined,
+    }).catch(console.error)
+
     return NextResponse.json({ playbook: fallback, source: 'fallback' })
     })
   } catch (error) {

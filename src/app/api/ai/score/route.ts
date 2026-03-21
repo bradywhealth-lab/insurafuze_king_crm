@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withRequestOrgContext } from '@/lib/request-context'
+import { trackAIEvent } from '@/lib/ai-tracking'
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,6 +52,32 @@ export async function GET(request: NextRequest) {
         },
       },
     })
+
+    // Track the scoring event
+    await trackAIEvent({
+      userId: context.userId || 'unknown',
+      organizationId: context.organizationId,
+      eventType: 'lead_scored',
+      entityType: 'lead',
+      entityId: lead.id,
+      input: {
+        leadId: lead.id,
+        email: lead.email,
+        phone: lead.phone,
+        company: lead.company,
+        title: lead.title,
+        source: lead.source,
+        engagementScore: lead.engagementScore,
+        totalInteractions: lead.totalInteractions,
+      },
+      output: {
+        score: updated.aiScore,
+        confidence: updated.aiConfidence,
+        nextAction: updated.aiNextAction,
+        insights: updated.aiInsights,
+      },
+      leadProfession: lead.title || undefined,
+    }).catch(console.error) // Don't fail if tracking fails
 
     return NextResponse.json({
       leadId: updated.id,
