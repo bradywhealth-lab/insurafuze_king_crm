@@ -51,19 +51,26 @@ export async function POST(request: NextRequest) {
       // Get user ID from session (context should have this)
       const userId = context.userId || 'unknown'
 
-      const event = await trackAIEvent({
+      const result = await trackAIEvent(
         userId,
-        organizationId: context.organizationId,
-        eventType: eventType as LearningEventType,
+        eventType,
         entityType,
         entityId,
         input,
         output,
-        leadProfession,
-        sourceType,
-      })
+        {
+          leadProfession,
+          sourceType,
+        }
+      )
 
-      return NextResponse.json({ event: { id: event.id, eventType: event.eventType } })
+      return NextResponse.json({
+        event: {
+          id: result.eventId,
+          eventType,
+          pineconeId: result.pineconeId
+        }
+      })
     })
   } catch (error) {
     console.error('AI track error:', error)

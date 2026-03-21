@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { generateEmbedding } from '@/lib/embeddings'
+import { PineconeClient } from '@/lib/pinecone-client'
 
 export type LearningEventType =
   | 'sms_sent'
@@ -10,6 +11,8 @@ export type LearningEventType =
   | 'insights_generated'
   | 'chat_message'
 
+// TrackEventInput is deprecated - use individual parameters instead
+// @deprecated Use individual parameters in trackAIEvent instead
 export interface TrackEventInput {
   userId: string
   organizationId: string
@@ -20,6 +23,7 @@ export interface TrackEventInput {
   output: Record<string, unknown>
   leadProfession?: string
   sourceType?: string
+  syncToPinecone?: boolean
 }
 
 export interface RecordOutcomeInput {
@@ -47,41 +51,113 @@ export async function ensureUserAIProfile(userId: string) {
 }
 
 /**
- * Tracks an AI learning event for a user.
- * Creates a UserAIProfile if needed, records the event,
- * generates and stores an embedding, and updates the profile's interaction counter.
+ * Tracks an AI interaction event for learning.
+ *
+ * Enhanced with Pinecone sync for vector search capabilities.
+ *
+ * @param userId - User ID who triggered the event
+ * @param eventType - Type of event (sms_sent, email_sent, etc.)
+ * @param entityType - Type of entity (lead, contact, etc.)
+ * @param entityId - ID of the entity
+ * @param input - Input data for the AI interaction
+ * @param output - Output data from the AI interaction
+ * @param options - Optional parameters (leadProfession, sourceType, syncToPinecone)
+ * @returns Event ID and optional Pinecone ID
  */
-export async function trackAIEvent(input: TrackEventInput) {
-  const profile = await ensureUserAIProfile(input.userId)
+export async function trackAIEvent(
+  userId: string,
+  eventType: string,
+  entityType: string,
+  entityId: string,
+  input: Record<string, unknown>,
+  output: Record<string, unknown>,
+  options?: {
+    leadProfession?: string
+    sourceType?: string
+    syncToPinecone?: boolean
+  }
+): Promise<{
+  eventId: string
+  pineconeId?: string
+}> {
+  // Get or create user profile
+  const profile = await ensureUserAIProfile(userId)
 
-  // Generate embedding for the event (combines input and output for semantic similarity)
-  const eventText = JSON.stringify({ input: input.input, output: input.output })
-  const embedding = await generateEmbedding(eventText)
+  // Generate embedding from input only
+  const embedding = await generateEmbedding(JSON.stringify(input))
 
+  // Create event in database
   const event = await db.userLearningEvent.create({
     data: {
       userProfileId: profile.id,
-      eventType: input.eventType,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      input: input.input as Record<string, unknown>,
-      output: input.output as Record<string, unknown>,
-      leadProfession: input.leadProfession,
-      sourceType: input.sourceType,
-      embedding, // Store embedding for RAG retrieval
-    },
+      eventType,
+      entityType,
+      entityId,
+      input,
+      output,
+      embedding, // Store in PostgreSQL as backup
+      leadProfession: options?.leadProfession,
+      sourceType: options?.sourceType
+    }
   })
 
-  // Update profile interaction count
+  // Sync to Pinecone if enabled (default: true)
+  const shouldSync = options?.syncToPinecone !== false
+
+  let pineconeId: string | undefined
+
+  if (shouldSync && PineconeClient.isAvailable()) {
+    try {
+      // Get user's organization
+      const user = await db.user.findUnique({
+        where: { id: userId },
+        select: { organizationId: true }
+      })
+
+      if (user) {
+        const pineconeEventId = `${user.organizationId}_${event.id}`
+
+        await PineconeClient.upsertEvent(
+          pineconeEventId,
+          embedding,
+          {
+            userId,
+            organizationId: user.organizationId,
+            eventType,
+            entityType,
+            entityId,
+            outcome: null, // Will be updated when feedback is received
+            createdAt: event.createdAt.toISOString()
+          }
+        )
+
+        // Update event with Pinecone ID
+        await db.userLearningEvent.update({
+          where: { id: event.id },
+          data: { pineconeId: pineconeEventId }
+        })
+
+        pineconeId = pineconeEventId
+      }
+    } catch (error) {
+      console.error('[AI Learning] Failed to sync to Pinecone:', error)
+      // Continue even if sync fails
+    }
+  }
+
+  // Update profile stats
   await db.userAIProfile.update({
     where: { id: profile.id },
     data: {
       totalInteractions: { increment: 1 },
-      lastUpdatedAt: new Date(),
-    },
+      lastUpdatedAt: new Date()
+    }
   })
 
-  return event
+  return {
+    eventId: event.id,
+    pineconeId
+  }
 }
 
 /**

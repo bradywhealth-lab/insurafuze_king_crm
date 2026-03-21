@@ -1143,6 +1143,9 @@ model UserLearningEvent {
   leadProfession String?
   sourceType     String?
 
+  // Vector Embedding (for RAG retrieval)
+  embedding Unsupported("vector(1536)")?
+
   createdAt DateTime  @default(now())
   outcomeAt DateTime?
 

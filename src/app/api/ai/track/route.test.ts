@@ -5,6 +5,9 @@ import { db } from '@/lib/db'
 // Mock db
 vi.mock('@/lib/db', () => ({
   db: {
+    user: {
+      findUnique: vi.fn(),
+    },
     userAIProfile: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -12,6 +15,7 @@ vi.mock('@/lib/db', () => ({
     },
     userLearningEvent: {
       create: vi.fn(),
+      update: vi.fn(),
     },
   },
 }))
@@ -49,9 +53,12 @@ describe('/api/ai/track', () => {
   it('should track an AI event successfully', async () => {
     const mockProfile = { id: 'profile-1', userId: 'user-1' }
     const mockEvent = { id: 'event-1', eventType: 'sms_sent' }
+    const mockUser = { id: 'user-1', organizationId: 'test-org' }
 
+    ;(db.user.findUnique as any).mockResolvedValue(mockUser)
     ;(db.userAIProfile.findUnique as any).mockResolvedValue(mockProfile)
     ;(db.userLearningEvent.create as any).mockResolvedValue(mockEvent)
+    ;(db.userLearningEvent.update as any).mockResolvedValue(mockEvent)
     ;(db.userAIProfile.update as any).mockResolvedValue(mockProfile)
 
     const request = new Request('http://localhost:3000/api/ai/track', {
@@ -79,10 +86,13 @@ describe('/api/ai/track', () => {
   it('should create profile if it does not exist', async () => {
     const mockProfile = { id: 'profile-1', userId: 'user-1' }
     const mockEvent = { id: 'event-1', eventType: 'sms_sent' }
+    const mockUser = { id: 'user-1', organizationId: 'test-org' }
 
+    ;(db.user.findUnique as any).mockResolvedValue(mockUser)
     ;(db.userAIProfile.findUnique as any).mockResolvedValue(null)
     ;(db.userAIProfile.create as any).mockResolvedValue(mockProfile)
     ;(db.userLearningEvent.create as any).mockResolvedValue(mockEvent)
+    ;(db.userLearningEvent.update as any).mockResolvedValue(mockEvent)
     ;(db.userAIProfile.update as any).mockResolvedValue(mockProfile)
 
     const request = new Request('http://localhost:3000/api/ai/track', {
