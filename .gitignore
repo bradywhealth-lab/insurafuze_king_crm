@@ -87,4 +87,4 @@ temp/
 test/
 prompt/
 *.swp
-*.swo
+*.swo.worktrees
