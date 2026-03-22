@@ -167,7 +167,7 @@ function retrieveTopChunks(
   const queryTokenSet = new Set(queryTokens)
 
   const scored = chunks
-    .map((chunk) => {
+    .map<RetrievedChunk | null>((chunk) => {
       const chunkTokens = tokenize(chunk.content)
       if (chunkTokens.length === 0) return null
       let overlap = 0
@@ -192,7 +192,8 @@ function retrieveTopChunks(
       }
     })
     .filter(isRetrievedChunk)
-    .sort((a, b) => b.score - a.score)
+
+  scored.sort((a, b) => b.score - a.score)
 
   return scored
     .filter((item) => item.score >= 0.02 && item.content.length >= 60)
@@ -422,16 +423,15 @@ Respond as strict JSON only using this schema:
         parsed.citations = normalizeCitations(parsed.citations, knowledgeContext)
 
         // Track playbook generation
-        await trackAIEvent({
-          userId: context.userId || 'unknown',
-          organizationId: context.organizationId,
-          eventType: 'playbook_generated',
-          entityType: 'lead',
-          entityId: leadId,
-          input: { leadId, extraContext },
-          output: { playbook: parsed, source: 'llm' },
-          leadProfession: lead.title || undefined,
-        }).catch(console.error)
+        await trackAIEvent(
+          context.userId || 'unknown',
+          'playbook_generated',
+          'lead',
+          leadId,
+          { leadId, extraContext },
+          { playbook: parsed, source: 'llm' },
+          { leadProfession: lead.title || undefined }
+        ).catch(console.error)
 
         return NextResponse.json({ playbook: parsed, source: 'llm' })
       }
@@ -461,16 +461,15 @@ Respond as strict JSON only using this schema:
     )
 
     // Track fallback playbook generation
-    await trackAIEvent({
-      userId: context.userId || 'unknown',
-      organizationId: context.organizationId,
-      eventType: 'playbook_generated',
-      entityType: 'lead',
-      entityId: leadId,
-      input: { leadId, extraContext },
-      output: { playbook: fallback, source: 'fallback' },
-      leadProfession: lead.title || undefined,
-    }).catch(console.error)
+    await trackAIEvent(
+      context.userId || 'unknown',
+      'playbook_generated',
+      'lead',
+      leadId,
+      { leadId, extraContext },
+      { playbook: fallback, source: 'fallback' },
+      { leadProfession: lead.title || undefined }
+    ).catch(console.error)
 
     return NextResponse.json({ playbook: fallback, source: 'fallback' })
     })

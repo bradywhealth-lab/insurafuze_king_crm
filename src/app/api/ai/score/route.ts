@@ -54,13 +54,12 @@ export async function GET(request: NextRequest) {
     })
 
     // Track the scoring event
-    await trackAIEvent({
-      userId: context.userId || 'unknown',
-      organizationId: context.organizationId,
-      eventType: 'lead_scored',
-      entityType: 'lead',
-      entityId: lead.id,
-      input: {
+    await trackAIEvent(
+      context.userId || 'unknown',
+      'lead_scored',
+      'lead',
+      lead.id,
+      {
         leadId: lead.id,
         email: lead.email,
         phone: lead.phone,
@@ -70,14 +69,14 @@ export async function GET(request: NextRequest) {
         engagementScore: lead.engagementScore,
         totalInteractions: lead.totalInteractions,
       },
-      output: {
+      {
         score: updated.aiScore,
         confidence: updated.aiConfidence,
         nextAction: updated.aiNextAction,
         insights: updated.aiInsights,
       },
-      leadProfession: lead.title || undefined,
-    }).catch(console.error) // Don't fail if tracking fails
+      { leadProfession: lead.title || undefined }
+    ).catch(console.error) // Don't fail if tracking fails
 
     return NextResponse.json({
       leadId: updated.id,

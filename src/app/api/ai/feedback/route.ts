@@ -5,6 +5,7 @@ import { parseJsonBody } from '@/lib/validation'
 import { enforceRateLimit } from '@/lib/rate-limit'
 import { withRequestOrgContext } from '@/lib/request-context'
 import { recordEventOutcome } from '@/lib/ai-tracking'
+import { Prisma } from '@prisma/client'
 
 const feedbackSchema = z.object({
   entityType: z.string().min(1),
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
           entityId,
           rating,
           feedback: feedback || null,
-          corrections: corrections || null,
+          corrections: corrections ? corrections as Prisma.InputJsonValue : Prisma.JsonNull,
         },
       })
 

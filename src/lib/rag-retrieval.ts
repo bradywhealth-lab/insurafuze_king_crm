@@ -141,7 +141,7 @@ export async function retrieveSimilarEvents(
   // Calculate similarity and rank
   const ranked = events
     .map((event) => {
-      const eventEmbedding = event.embedding as number[] | null
+      const eventEmbedding = (event as typeof event & { embedding?: number[] | null }).embedding ?? null
       if (!eventEmbedding) return null
 
       const similarity = cosineSimilarity(queryEmbedding, eventEmbedding)

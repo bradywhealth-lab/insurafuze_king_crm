@@ -1,6 +1,5 @@
 import { db } from '@/lib/db'
-import { generateEmbedding } from '@/lib/embeddings'
-import { PineconeClient } from '@/lib/pinecone-client'
+import { Prisma } from '@prisma/client'
 
 export type LearningEventType =
   | 'sms_sent'
@@ -32,6 +31,26 @@ export interface RecordOutcomeInput {
   outcomeDelay?: number // minutes
   userRating?: number // 1-5
   userCorrection?: Record<string, unknown>
+}
+
+async function loadEmbeddingUtils() {
+  return import('@/lib/embeddings')
+}
+
+async function loadPineconeClient() {
+  return import('@/lib/pinecone-client')
+}
+
+function toInputJsonValue(value: Record<string, unknown>): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue
+}
+
+function toNullableInputJsonValue(
+  value: Record<string, unknown> | null | undefined
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return Prisma.JsonNull
+  return value as Prisma.InputJsonValue
 }
 
 /**
@@ -80,6 +99,11 @@ export async function trackAIEvent(
   eventId: string
   pineconeId?: string
 }> {
+  const [{ generateEmbedding }, { PineconeClient }] = await Promise.all([
+    loadEmbeddingUtils(),
+    loadPineconeClient(),
+  ])
+
   // Get or create user profile
   const profile = await ensureUserAIProfile(userId)
 
@@ -93,9 +117,8 @@ export async function trackAIEvent(
       eventType,
       entityType,
       entityId,
-      input,
-      output,
-      embedding, // Store in PostgreSQL as backup
+      input: toInputJsonValue(input),
+      output: toInputJsonValue(output),
       leadProfession: options?.leadProfession,
       sourceType: options?.sourceType
     }
@@ -106,15 +129,17 @@ export async function trackAIEvent(
 
   let pineconeId: string | undefined
 
-  if (shouldSync && PineconeClient.isAvailable()) {
+  if (shouldSync) {
     try {
+      await PineconeClient.initialize()
+
       // Get user's organization
       const user = await db.user.findUnique({
         where: { id: userId },
         select: { organizationId: true }
       })
 
-      if (user) {
+      if (user && PineconeClient.isAvailable()) {
         const pineconeEventId = `${user.organizationId}_${event.id}`
 
         await PineconeClient.upsertEvent(
@@ -181,7 +206,7 @@ export async function recordEventOutcome(input: RecordOutcomeInput) {
       outcome: input.outcome,
       outcomeDelay: input.outcomeDelay,
       userRating: input.userRating,
-      userCorrection: input.userCorrection as Record<string, unknown> | null,
+      userCorrection: toNullableInputJsonValue(input.userCorrection),
       outcomeAt: new Date(),
     },
   })

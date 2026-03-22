@@ -1,17 +1,37 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-// Mock OpenAI
+// Mock OpenAI - factory must be inline due to hoisting
 vi.mock('openai', () => {
-  const mockCreate = vi.fn().mockResolvedValue({
-    data: [{ embedding: new Array(1536).fill(0.1) }]
-  })
+  let mockCallCount = 0
+
+  class MockOpenAI {
+    constructor() {
+      // Mock constructor
+    }
+
+    embeddings = {
+      create: vi.fn().mockImplementation(async ({ input }: { input: string | string[] }) => {
+        // Handle batch requests (array input)
+        if (Array.isArray(input)) {
+          return {
+            data: input.map((_, idx) => ({
+              embedding: new Array(1536).fill(0.1).map((v, i) => v + (idx * 0.001))
+            }))
+          }
+        }
+        // Single request
+        mockCallCount++
+        return {
+          data: [{
+            embedding: new Array(1536).fill(0.1).map(v => v + (mockCallCount * 0.001))
+          }]
+        }
+      })
+    }
+  }
 
   return {
-    default: vi.fn(() => ({
-      embeddings: {
-        create: mockCreate
-      }
-    }))
+    default: MockOpenAI
   }
 })
 
@@ -36,10 +56,16 @@ describe('embeddings', () => {
     })
 
     it('should generate different embeddings for different text', async () => {
+      // When OpenAI is not configured, hash-based embeddings should differ
       const embedding1 = await generateEmbedding('text one')
       const embedding2 = await generateEmbedding('text two')
 
+      // Hash-based embeddings should be different for different text
       expect(embedding1).not.toEqual(embedding2)
+
+      // But same text should produce same embedding (deterministic)
+      const embedding3 = await generateEmbedding('text one')
+      expect(embedding1).toEqual(embedding3)
     })
 
     it('should cache embeddings by default', async () => {

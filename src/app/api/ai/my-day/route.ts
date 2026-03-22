@@ -58,20 +58,19 @@ export async function GET(request: NextRequest) {
     const summary = `You have ${leadsToCall.length} prioritized leads and ${meetings.length} meetings in focus. Top lead score is ${leadsToCall[0]?.aiScore ?? 0}.`
 
     // Track the insights generation event
-    await trackAIEvent({
-      userId: context.userId || 'unknown',
-      organizationId: context.organizationId,
-      eventType: 'insights_generated',
-      entityType: 'daily_summary',
-      entityId: context.organizationId,
-      input: { limit },
-      output: {
+    await trackAIEvent(
+      context.userId || 'unknown',
+      'insights_generated',
+      'daily_summary',
+      context.organizationId,
+      { limit },
+      {
         leadsToCall: leadsToCall.length,
         meetings: meetings.length,
         topScore: leadsToCall[0]?.aiScore ?? 0,
         summary,
-      },
-    }).catch(console.error)
+      }
+    ).catch(console.error)
 
     return NextResponse.json({
       date: new Date().toISOString(),
