@@ -1,22 +1,46 @@
 # Cron Job Setup
 
+This guide explains how to configure and secure the cron job endpoints for the AI Learning System's weekly pattern extraction feature.
+
 ## CRON_SECRET Generation
 
-Generate a secure cron secret:
+The cron endpoint requires a secret token for authentication to prevent unauthorized access. Generate a secure secret using OpenSSL:
 
 ```bash
 openssl rand -base64 32
 ```
 
-Add the output to your environment variables:
-
-```bash
-CRON_SECRET=<generated-secret>
+Example output (for reference only - **generate your own**):
 ```
+pPT32u1/wN8tkz3LAGHnRgPKuVHPDsKVcC+T6fDTKoc=
+```
+
+## Setting the Environment Variable
+
+Add the generated secret to your environment variables:
+
+### Vercel (Production)
+
+1. Go to your project settings in Vercel dashboard
+2. Navigate to **Environment Variables**
+3. Add a new variable:
+   - **Key**: `CRON_SECRET`
+   - **Value**: Your generated secret
+   - **Environments**: Production, Preview, Development (as needed)
+
+### Local Development
+
+Add to your `.env.local` file:
+
+```env
+CRON_SECRET=your_generated_secret_here
+```
+
+**IMPORTANT**: Never commit `.env.local` files or expose secrets in version control.
 
 ## Vercel Cron Configuration
 
-The cron job is configured in `vercel.json`:
+The cron job is configured in `vercel.json` at the project root:
 
 ```json
 {
@@ -29,15 +53,37 @@ The cron job is configured in `vercel.json`:
 }
 ```
 
-This runs weekly on Sunday at 2 AM UTC.
+**Schedule Breakdown:**
+- `0 2 * * 0` = Every Sunday at 2:00 AM UTC
+  - Minute: 0
+  - Hour: 2
+  - Day of month: *
+  - Month: *
+  - Day of week: 0 (Sunday)
+
+**What it does:**
+- Triggers `/api/cron/extract-patterns` weekly
+- Extracts user behavior patterns from the past 7 days
+- Updates pattern-based AI insights
 
 ## Manual Trigger
 
-To manually trigger the pattern extraction:
+For testing or immediate execution, you can manually trigger the cron endpoint:
+
+### Using curl
 
 ```bash
 curl -X POST https://your-domain.com/api/cron/extract-patterns \
   -H "x-cron-secret: YOUR_CRON_SECRET" \
+  -H "Content-Type: application/json"
+```
+
+### Using the Vercel CLI
+
+```bash
+vercel env pull .env.local
+curl -X POST http://localhost:3000/api/cron/extract-patterns \
+  -H "x-cron-secret: $CRON_SECRET" \
   -H "Content-Type: application/json"
 ```
 
@@ -52,13 +98,26 @@ curl -X POST https://your-domain.com/api/cron/extract-patterns \
    - Successful sources (lead source performance)
 4. Updates user profiles with learned patterns
 
+## Security Considerations
+
+1. **Never expose CRON_SECRET** in client-side code or public repositories
+2. **Use strong secrets** - always generate new secrets with `openssl rand -base64 32`
+3. **Rotate periodically** - consider updating secrets on a regular schedule
+4. **Monitor execution logs** - check Vercel logs for failed or unauthorized attempts
+
 ## Troubleshooting
 
 ### Cron Job Not Running
 
-1. Check Vercel deployment logs
-2. Verify `CRON_SECRET` is set in environment variables
-3. Check that the path matches your deployed route
+1. Check Vercel deployment logs for errors
+2. Verify `vercel.json` is deployed with the project
+3. Confirm CRON_SECRET is set in environment variables
+
+### Authorization Failures
+
+1. Verify CRON_SECRET matches between environment and request
+2. Check the Authorization header format: `x-cron-secret: YOUR_SECRET`
+3. Ensure the header is properly escaped in shell commands
 
 ### Pattern Extraction Fails
 
@@ -97,3 +156,9 @@ Ensure migrations are applied:
 ```bash
 npx prisma migrate deploy
 ```
+
+## Related Files
+
+- `/api/cron/extract-patterns/route.ts` - Cron endpoint implementation
+- `vercel.json` - Cron job schedule configuration
+- `/lib/rag-retrieval.ts` - RAG utilities for pattern extraction
