@@ -9,8 +9,8 @@
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "prisma generate && next build --webpack && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
+    "build": "prisma generate && next build",
+    "start": "next start",
     "test": "vitest run",
     "lint": "eslint src scripts prisma next.config.ts prisma.config.ts eslint.config.mjs vitest.config.ts tailwind.config.ts",
     "typecheck": "node scripts/typecheck-gate.mjs",
