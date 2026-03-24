@@ -1,4 +1,5 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
@@ -13,6 +14,7 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30
 
 type SessionLookup = {
   id: string
+  token: string
   expiresAt: Date
   lastActiveAt: Date
   user: {
@@ -29,6 +31,21 @@ type SessionLookup = {
       plan: string
       settings?: unknown
     }
+  }
+}
+
+type SerializableAuthUser = {
+  id: string
+  email: string
+  name: string | null
+  role: string
+  organizationId: string
+  preferences: unknown
+  organization: {
+    id: string
+    name: string
+    slug: string
+    plan: string
   }
 }
 
@@ -52,8 +69,24 @@ export function createSessionToken(): string {
   return randomBytes(32).toString('hex')
 }
 
+export function serializeAuthUser(user: SerializableAuthUser) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    organizationId: user.organizationId,
+    organization: user.organization,
+    preferences: user.preferences,
+  }
+}
+
 function readJsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+export function readUserPreferences(value: unknown): Record<string, unknown> {
+  return readJsonObject(value)
 }
 
 function readSessionTimeoutMinutes(settings: unknown): number {
@@ -125,6 +158,7 @@ export async function getCurrentSessionFromToken(token: string) {
     },
     select: {
       id: true,
+      token: true,
       expiresAt: true,
       lastActiveAt: true,
       user: {
@@ -163,19 +197,10 @@ export async function getCurrentSessionFromToken(token: string) {
 
   return {
     sessionId: session.id,
+    sessionToken: token,
+    sessionTokenHash: session.token,
     expiresAt: session.expiresAt,
     user: session.user,
-  }
-}
-
-export function buildSessionCookieOptions(expiresAt: Date) {
-  return {
-    httpOnly: true,
-    sameSite: 'lax' as const,
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    expires: expiresAt,
-    priority: 'high' as const,
   }
 }
 
@@ -212,6 +237,37 @@ export async function invalidateSessionToken(token: string) {
   await db.userSession.updateMany({
     where: { token: tokenHash },
     data: { isActive: false },
+  })
+}
+
+export async function invalidateUserSessions(userId: string) {
+  await db.userSession.updateMany({
+    where: { userId, isActive: true },
+    data: { isActive: false },
+  })
+}
+
+export async function createUserSession(
+  userId: string,
+  sessionToken: string,
+  request?: NextRequest,
+  overrides?: Partial<Pick<Prisma.UserSessionUncheckedCreateInput, 'expiresAt'>>,
+) {
+  const sessionClient = request ? readSessionClientDetails(request) : null
+  const expiresAt = overrides?.expiresAt ?? new Date(Date.now() + SESSION_TTL_MS)
+
+  return db.userSession.create({
+    data: {
+      userId,
+      token: hashSessionToken(sessionToken),
+      isActive: true,
+      expiresAt,
+      lastActiveAt: new Date(),
+      device: sessionClient?.device,
+      browser: sessionClient?.browser,
+      os: sessionClient?.os,
+      ip: sessionClient?.ip,
+    },
   })
 }
 

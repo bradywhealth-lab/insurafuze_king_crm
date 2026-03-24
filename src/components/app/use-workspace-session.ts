@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { getSession, signOut as nextAuthSignOut } from "next-auth/react"
 
 export type WorkspaceUser = {
   id: string
@@ -10,6 +11,7 @@ export type WorkspaceUser = {
   role: string
   organizationId: string
   organization?: { id: string; name: string; slug: string; plan: string }
+  mustChangePassword?: boolean
 }
 
 export function useWorkspaceSession() {
@@ -22,21 +24,20 @@ export function useWorkspaceSession() {
 
     ;(async () => {
       try {
-        const response = await fetch("/api/auth", { credentials: "include" })
-        const payload = await response.json()
+        const session = await getSession()
         if (cancelled) return
 
-        if (!response.ok || !payload.authenticated) {
+        if (!session?.user) {
           router.replace("/auth")
           return
         }
 
-        if (payload.mustChangePassword) {
+        if (session.user.mustChangePassword) {
           router.replace("/auth/password")
           return
         }
 
-        setCurrentUser(payload.user)
+        setCurrentUser(session.user as WorkspaceUser)
       } catch {
         if (!cancelled) router.replace("/auth")
       } finally {
@@ -51,7 +52,7 @@ export function useWorkspaceSession() {
 
   const signOut = useCallback(async () => {
     try {
-      await fetch("/api/auth", { method: "DELETE" })
+      await nextAuthSignOut({ redirect: false })
     } finally {
       router.replace("/auth")
       router.refresh()

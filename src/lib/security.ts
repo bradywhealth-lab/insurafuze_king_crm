@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthBaseUrl } from '@/lib/auth-env'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 function getAllowedOrigin(request: NextRequest): string {
   if (process.env.NODE_ENV !== 'production') {
     return request.nextUrl.origin
+  }
+
+  const authBaseUrl = getAuthBaseUrl()
+  if (authBaseUrl) {
+    return authBaseUrl
   }
 
   const appBaseUrl = process.env.APP_BASE_URL?.trim()
