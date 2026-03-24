@@ -10,7 +10,7 @@ const signupSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email(),
   password: z.string().min(8).max(200),
-  organizationName: z.string().min(1).max(120),
+  organizationName: z.string().min(1).max(120).transform((v) => v.trim()).refine((v) => v.length > 0, { message: 'Organization name cannot be blank.' }),
 })
 
 export async function POST(request: NextRequest) {
@@ -99,6 +99,14 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Signup POST error:', error)
+    if (
+      error != null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2002'
+    ) {
+      return NextResponse.json({ error: 'An account with that email already exists.' }, { status: 409 })
+    }
     return NextResponse.json({ error: 'Failed to create account' }, { status: 500 })
   }
 }

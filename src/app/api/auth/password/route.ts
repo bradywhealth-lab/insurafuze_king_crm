@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import {
+  AUTH_COOKIE_NAME,
   getCurrentSessionFromToken,
   hashPassword,
   readUserPreferences,
@@ -79,7 +80,16 @@ export async function POST(request: NextRequest) {
       })
     })
 
-    return NextResponse.json({ success: true, mustChangePassword: false })
+    const response = NextResponse.json({ success: true, mustChangePassword: false })
+    // Clear the auth cookie so the client is forced to re-authenticate after password rotation
+    response.cookies.set(AUTH_COOKIE_NAME, '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 0,
+    })
+    return response
   } catch (error) {
     console.error('Password POST error:', error)
     return NextResponse.json({ error: 'Failed to update password' }, { status: 500 })

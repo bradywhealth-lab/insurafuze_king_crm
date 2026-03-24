@@ -15,6 +15,7 @@ import {
   serializeAuthUser,
   verifyPassword,
 } from '@/lib/auth'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 function mapUser(user: {
   id: string
@@ -279,6 +280,16 @@ export function buildNextAuthOptions(request?: NextRequest): NextAuthOptions {
           const email = typeof credentials?.email === 'string' ? credentials.email.trim().toLowerCase() : ''
           const password = typeof credentials?.password === 'string' ? credentials.password : ''
           if (!email || !password) return null
+
+          // Enforce brute-force throttling (10 attempts / 15 min per email)
+          if (request) {
+            const limited = enforceRateLimit(request, {
+              key: `auth-credentials:${email}`,
+              limit: 10,
+              windowMs: 15 * 60_000,
+            })
+            if (limited) return null
+          }
 
           const user = await db.user.findUnique({
             where: { email },

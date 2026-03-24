@@ -30,74 +30,88 @@ export async function POST(request: NextRequest) {
     if (limited) return limited
 
     const email = parsed.data.email.trim().toLowerCase()
-    const user = await db.user.findUnique({
-      where: { email },
-      include: {
-        organization: {
-          select: { id: true, name: true, slug: true, plan: true },
-        },
-      },
-    })
-    if (!user) {
-      return NextResponse.json({ error: 'Invitation not found.' }, { status: 404 })
-    }
+    const expectedTokenHash = hashSessionToken(parsed.data.token)
 
-    const preferences = readUserPreferences(user.preferences)
-    const inviteTokenHash = typeof preferences.inviteTokenHash === 'string' ? preferences.inviteTokenHash : null
-    const inviteTokenExpiresAt = typeof preferences.inviteTokenExpiresAt === 'string' ? preferences.inviteTokenExpiresAt : null
-    if (
-      !inviteTokenHash ||
-      inviteTokenHash !== hashSessionToken(parsed.data.token) ||
-      !inviteTokenExpiresAt ||
-      Number.isNaN(Date.parse(inviteTokenExpiresAt)) ||
-      new Date(inviteTokenExpiresAt) <= new Date()
-    ) {
-      return NextResponse.json({ error: 'Invitation is invalid or expired.' }, { status: 401 })
-    }
+    // Generic error for both missing user and invalid/expired token to prevent enumeration
+    const invalidResponse = NextResponse.json({ error: 'Invitation is invalid or expired.' }, { status: 401 })
 
-    delete preferences.inviteTokenHash
-    delete preferences.inviteTokenExpiresAt
-    delete preferences.requirePasswordChange
-    preferences.invitedAcceptedAt = new Date().toISOString()
-
-    const updated = await db.$transaction(async (tx) => {
-      const nextUser = await tx.user.update({
-        where: { id: user.id },
-        data: {
-          name: parsed.data.name?.trim() || user.name,
-          passwordHash: hashPassword(parsed.data.password),
-          preferences: preferences as Prisma.InputJsonValue,
-        },
-        include: {
-          organization: {
-            select: { id: true, name: true, slug: true, plan: true },
+    // Atomically validate and consume the invite token inside a transaction to prevent
+    // concurrent accepts from both succeeding (race condition on token + password overwrite).
+    let updated: Awaited<ReturnType<typeof db.user.update>> | null = null
+    try {
+      updated = await db.$transaction(async (tx) => {
+        // Re-fetch inside transaction so the read and write are atomic
+        const user = await tx.user.findUnique({
+          where: { email },
+          include: {
+            organization: {
+              select: { id: true, name: true, slug: true, plan: true },
+            },
           },
-        },
-      })
+        })
+        if (!user) throw new Error('INVALID_INVITE')
 
-      await tx.userSession.updateMany({
-        where: { userId: user.id, isActive: true },
-        data: { isActive: false },
-      })
+        const preferences = readUserPreferences(user.preferences)
+        const inviteTokenHash = typeof preferences.inviteTokenHash === 'string' ? preferences.inviteTokenHash : null
+        const inviteTokenExpiresAt = typeof preferences.inviteTokenExpiresAt === 'string' ? preferences.inviteTokenExpiresAt : null
+        if (
+          !inviteTokenHash ||
+          inviteTokenHash !== expectedTokenHash ||
+          !inviteTokenExpiresAt ||
+          Number.isNaN(Date.parse(inviteTokenExpiresAt)) ||
+          new Date(inviteTokenExpiresAt) <= new Date()
+        ) {
+          throw new Error('INVALID_INVITE')
+        }
 
-      await tx.auditLog.create({
-        data: {
-          organizationId: user.organizationId,
-          action: 'accept_invite',
-          entityType: 'user',
-          entityId: user.id,
-          actorId: user.id,
-          actorEmail: user.email,
-          description: 'Accepted workspace invitation and activated account',
-        },
-      })
+        delete preferences.inviteTokenHash
+        delete preferences.inviteTokenExpiresAt
+        delete preferences.requirePasswordChange
+        preferences.invitedAcceptedAt = new Date().toISOString()
 
-      return nextUser
-    })
+        const nextUser = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            name: parsed.data.name?.trim() || user.name,
+            passwordHash: hashPassword(parsed.data.password),
+            preferences: preferences as Prisma.InputJsonValue,
+          },
+          include: {
+            organization: {
+              select: { id: true, name: true, slug: true, plan: true },
+            },
+          },
+        })
+
+        await tx.userSession.updateMany({
+          where: { userId: user.id, isActive: true },
+          data: { isActive: false },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: user.organizationId,
+            action: 'accept_invite',
+            entityType: 'user',
+            entityId: user.id,
+            actorId: user.id,
+            actorEmail: user.email,
+            description: 'Accepted workspace invitation and activated account',
+          },
+        })
+
+        return nextUser
+      })
+    } catch (err) {
+      if (err instanceof Error && err.message === 'INVALID_INVITE') {
+        return invalidResponse
+      }
+      throw err
+    }
 
     return NextResponse.json({
       success: true,
-      user: serializeAuthUser(updated),
+      user: serializeAuthUser(updated!),
       mustChangePassword: false,
     })
   } catch (error) {
