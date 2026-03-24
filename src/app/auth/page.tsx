@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { getSession, signIn } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -25,10 +26,9 @@ export default function AuthPage() {
 
     ;(async () => {
       try {
-        const res = await fetch('/api/auth', { credentials: 'include' })
-        const data = await res.json()
-        if (!cancelled && res.ok && data.authenticated) {
-          router.replace(data.mustChangePassword ? '/auth/password' : '/')
+        const session = await getSession()
+        if (!cancelled && session?.user) {
+          router.replace(session.user.mustChangePassword ? '/auth/password' : '/')
           router.refresh()
         }
       } catch {
@@ -45,25 +45,38 @@ export default function AuthPage() {
     setLoading(true)
     setError(null)
     try {
-      const payload =
-        mode === 'login'
-          ? { action: 'login', email: loginEmail, password: loginPassword }
-          : {
-              action: 'signup',
-              name: signupName,
-              email: signupEmail,
-              password: signupPassword,
-              organizationName,
-            }
+      if (mode === 'signup') {
+        const signupRes = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: signupName,
+            email: signupEmail,
+            password: signupPassword,
+            organizationName,
+          }),
+        })
+        const signupData = await signupRes.json()
+        if (!signupRes.ok || signupData.error) {
+          throw new Error(signupData.error || 'Authentication failed')
+        }
+      }
 
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const email = mode === 'login' ? loginEmail : signupEmail
+      const password = mode === 'login' ? loginPassword : signupPassword
+      const result = await signIn('credentials', {
+        redirect: false,
+        email,
+        password,
+        callbackUrl: '/',
       })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || 'Authentication failed')
-      router.push(data.mustChangePassword ? '/auth/password' : '/')
+
+      if (!result || result.error) {
+        throw new Error(mode === 'login' ? 'Invalid email or password.' : 'Authentication failed')
+      }
+
+      const session = await getSession()
+      router.push(session?.user?.mustChangePassword ? '/auth/password' : '/')
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed')

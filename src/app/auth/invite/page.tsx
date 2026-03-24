@@ -2,6 +2,7 @@
 
 import { Suspense, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { signIn } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,11 +24,10 @@ function InviteAcceptanceContent() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/api/auth/invite/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'accept-invite',
           email,
           token,
           name: name.trim() || undefined,
@@ -36,6 +36,13 @@ function InviteAcceptanceContent() {
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to accept invitation')
+      const result = await signIn('credentials', {
+        redirect: false,
+        email,
+        password,
+        callbackUrl: '/',
+      })
+      if (!result || result.error) throw new Error('Failed to start a new session')
       router.replace('/')
       router.refresh()
     } catch (err) {

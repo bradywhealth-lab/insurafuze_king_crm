@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getSession, signIn } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,7 @@ export default function PasswordSetupPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
 
@@ -20,14 +22,14 @@ export default function PasswordSetupPage() {
 
     ;(async () => {
       try {
-        const res = await fetch('/api/auth', { credentials: 'include' })
-        const data = await res.json()
+        const session = await getSession()
         if (cancelled) return
-        if (!res.ok || !data.authenticated) {
+        if (!session?.user) {
           router.replace('/auth')
           return
         }
-        if (!data.mustChangePassword) {
+        setEmail(session.user.email ?? '')
+        if (!session.user.mustChangePassword) {
           router.replace('/')
           return
         }
@@ -47,17 +49,23 @@ export default function PasswordSetupPage() {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/api/auth/password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'change-password',
           currentPassword,
           newPassword,
         }),
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to update password')
+      const result = await signIn('credentials', {
+        redirect: false,
+        email,
+        password: newPassword,
+        callbackUrl: '/',
+      })
+      if (!result || result.error) throw new Error('Failed to start a new session')
       router.replace('/')
       router.refresh()
     } catch (err) {
