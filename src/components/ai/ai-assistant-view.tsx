@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
+  AlertTriangle,
   Bot,
   Send,
   Plus,
@@ -12,12 +13,14 @@ import {
   MessageSquare,
   Trash2,
   ChevronRight,
+  Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from "@/hooks/use-toast"
+import { buildApiPath, readApiJsonOrText } from "@/lib/api-client"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -169,12 +172,13 @@ function MessageBubble({ message }: { message: Message }) {
 
 // ─── Main View ────────────────────────────────────────────────────────────────
 
-export function AiAssistantView() {
+export function AiAssistantView({ onOpenAISettings }: { onOpenAISettings?: () => void } = {}) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
+  const [assistantError, setAssistantError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -261,22 +265,27 @@ export function AiAssistantView() {
     setStreamingContent("")
 
     try {
+      setAssistantError(null)
       const currentMessages = activeChat?.messages ?? []
       const apiMessages = [...currentMessages, userMsg].map((m) => ({
         role: m.role,
         content: m.content,
       }))
 
-      const res = await fetch("/api/ai/chat", {
+      const contextSummary = "Use KingCRM context. Help with using the app better, deciding next best actions, writing outreach, qualifying leads, and troubleshooting AI/provider setup when relevant."
+
+      const res = await fetch(buildApiPath("/api/ai/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, context: contextSummary }),
         signal: controller.signal,
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string }
-        throw new Error(err.error ?? `HTTP ${res.status}`)
+        const { data, text } = await readApiJsonOrText(res)
+        const message = (data && typeof data.error === "string" ? data.error : text) ?? `HTTP ${res.status}`
+        setAssistantError(message)
+        throw new Error(message)
       }
 
       const reader = res.body?.getReader()
@@ -296,17 +305,31 @@ export function AiAssistantView() {
           if (!line.startsWith("data: ")) continue
           const data = line.slice(6).trim()
           if (data === "[DONE]") continue
-          try {
-            const parsed = JSON.parse(data) as { content?: string }
-            if (parsed.content) {
-              accumulated += parsed.content
-              setStreamingContent(accumulated)
+
+          const parsed = (() => {
+            try {
+              return JSON.parse(data) as { content?: string; error?: string }
+            } catch {
+              return null
             }
-          } catch { /* malformed chunk */ }
+          })()
+
+          if (!parsed) continue
+          if (parsed.error) {
+            setAssistantError(parsed.error)
+            throw new Error(parsed.error)
+          }
+          if (parsed.content) {
+            accumulated += parsed.content
+            setStreamingContent(accumulated)
+          }
         }
       }
 
-      // Commit the full AI message
+      if (!accumulated.trim()) {
+        throw new Error("The AI assistant returned an empty response. Check provider settings and try again.")
+      }
+
       const aiMsg: Message = {
         id: genId(),
         role: "assistant",
@@ -436,6 +459,23 @@ export function AiAssistantView() {
             {/* Messages */}
             <ScrollArea className="flex-1 px-6 py-6">
               <div className="max-w-3xl mx-auto space-y-6">
+                {assistantError ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-medium">AI assistant needs attention</div>
+                        <div className="mt-1">{assistantError}</div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => onOpenAISettings?.()}>
+                            <Settings className="mr-2 h-4 w-4" /> Open AI settings
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* Empty state */}
                 {activeChat.messages.length === 0 && !streaming && (
                   <motion.div
@@ -448,7 +488,7 @@ export function AiAssistantView() {
                     </div>
                     <h3 className="text-xl font-semibold text-black">How can I help you close?</h3>
                     <p className="text-gray-500 text-sm mt-2 mb-8">
-                      Ask me anything — lead qualification, follow-up scripts, objections, pipeline strategy.
+                      Ask me anything, including lead qualification, follow-up scripts, objections, pipeline strategy, or how to use KingCRM better.
                     </p>
 
                     {/* Suggested prompts grid */}

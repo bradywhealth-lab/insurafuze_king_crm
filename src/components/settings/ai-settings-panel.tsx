@@ -35,6 +35,11 @@ type AISettings = {
   maskedKey: string | null
   providerLabel: string
   availableProviders: ProviderInfo[]
+  platformFallbacks?: {
+    groq: boolean
+    openai: boolean
+    anthropic: boolean
+  }
 }
 
 export function AISettingsPanel() {
@@ -170,7 +175,7 @@ export function AISettingsPanel() {
             <div>
               <CardTitle className="text-black">AI Assistant Configuration</CardTitle>
               <CardDescription>
-                Choose your AI provider. Free tier included — upgrade anytime with your own API key.
+                Choose your AI provider. Be aware: fallback availability depends on what platform keys are actually configured on this deployment.
               </CardDescription>
             </div>
           </div>
@@ -232,10 +237,16 @@ export function AISettingsPanel() {
             </Select>
             <p className="text-xs text-gray-500">
               {selectedProvider === 'groq'
-                ? 'Groq runs Llama 3.3 70B for free. Great for lead qualification, scripts, and follow-ups. No API key required.'
+                ? settings?.platformFallbacks?.groq
+                  ? 'Groq fallback is available on this deployment.'
+                  : 'Groq can run only if this deployment has a platform GROQ_API_KEY configured, unless your org adds its own key.'
                 : selectedProvider === 'openai'
-                  ? 'OpenAI GPT-4o delivers premium quality. Requires your own API key from platform.openai.com.'
-                  : 'Anthropic Claude offers deep reasoning. Requires your own API key from console.anthropic.com.'}
+                  ? settings?.platformFallbacks?.openai
+                    ? 'OpenAI platform fallback is available on this deployment, or you can use your own key.'
+                    : 'OpenAI GPT-4o requires your own API key on this deployment.'
+                  : settings?.platformFallbacks?.anthropic
+                    ? 'Anthropic platform fallback is available on this deployment, or you can use your own key.'
+                    : 'Anthropic Claude requires your own API key on this deployment.'}
             </p>
           </div>
 
@@ -314,10 +325,11 @@ export function AISettingsPanel() {
               <div className="rounded-lg border border-[#D7DFEA] bg-[#F5F7FB] p-4 space-y-2">
                 <p className="text-sm font-medium text-black">Free Tier Details</p>
                 <ul className="text-xs text-gray-600 space-y-1">
-                  <li>• Powered by Llama 3.3 70B via Groq inference</li>
-                  <li>• 30 requests per minute, 14,400 per day</li>
+                  <li>• Powered by Llama 3.3 70B via Groq inference when a platform or org key is actually available</li>
                   <li>• Great for lead qualification, email/SMS drafting, sales coaching</li>
                   <li>• Upgrade to OpenAI or Anthropic anytime for premium models</li>
+                  <li>• If the assistant still fails, this deployment may not have a usable fallback key configured</li>
+                  <li>• Current deployment fallback status: {settings?.platformFallbacks?.groq ? 'Groq available' : 'Groq not detected'}</li>
                 </ul>
                 {!settings?.hasKey && (
                   <p className="text-xs text-[#2563EB] font-medium mt-2">
