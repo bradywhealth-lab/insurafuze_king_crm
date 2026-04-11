@@ -27,9 +27,29 @@ function maskKey(key: string | undefined | null): string | null {
 }
 
 const PROVIDER_DEFAULTS: Record<AIProvider, { model: string; label: string }> = {
-  groq: { model: 'llama-3.3-70b-versatile', label: 'Groq (Llama 3.3 70B) — Free' },
+  groq: { model: 'llama-3.3-70b-versatile', label: 'Groq (Llama 3.3 70B)' },
   openai: { model: 'gpt-4o', label: 'OpenAI (GPT-4o)' },
   anthropic: { model: 'claude-sonnet-4-20250514', label: 'Anthropic (Claude Sonnet)' },
+}
+
+function getPlatformFallbacks() {
+  return {
+    groq: Boolean(process.env.GROQ_API_KEY?.trim()),
+    openai: Boolean(process.env.OPENAI_API_KEY?.trim()),
+    anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+  }
+}
+
+function getProviderLabel(provider: AIProvider, hasKey: boolean) {
+  const base = PROVIDER_DEFAULTS[provider].label
+  if (hasKey) return `${base} — Custom key active`
+
+  const fallbacks = getPlatformFallbacks()
+  if (provider === 'groq' && fallbacks.groq) return `${base} — Platform fallback active`
+  if (provider === 'openai' && fallbacks.openai) return `${base} — Platform fallback active`
+  if (provider === 'anthropic' && fallbacks.anthropic) return `${base} — Platform fallback active`
+
+  return `${base} — No key configured`
 }
 
 // GET — return current AI settings (key masked)
@@ -57,12 +77,13 @@ export async function GET(request: NextRequest) {
         model,
         hasKey,
         maskedKey: hasKey ? maskKey(settings.aiApiKey as string) : null,
-        providerLabel: PROVIDER_DEFAULTS[provider].label,
+        providerLabel: getProviderLabel(provider, hasKey),
+        platformFallbacks: getPlatformFallbacks(),
         availableProviders: AI_PROVIDERS.map((p) => ({
           id: p,
           label: PROVIDER_DEFAULTS[p].label,
           defaultModel: PROVIDER_DEFAULTS[p].model,
-          requiresKey: p !== 'groq', // groq uses platform key as fallback
+          requiresKey: !getPlatformFallbacks()[p],
         })),
       })
     })
@@ -130,14 +151,16 @@ export async function PATCH(request: NextRequest) {
 
       const provider = (settings.aiProvider as AIProvider) || 'groq'
 
+      const hasKey = typeof settings.aiApiKey === 'string' && settings.aiApiKey.length > 0
+
       return NextResponse.json({
         success: true,
         provider,
         model: settings.aiModel || PROVIDER_DEFAULTS[provider].model,
-        hasKey:
-          typeof settings.aiApiKey === 'string' && settings.aiApiKey.length > 0,
+        hasKey,
         maskedKey: maskKey(settings.aiApiKey as string | null),
-        providerLabel: PROVIDER_DEFAULTS[provider].label,
+        providerLabel: getProviderLabel(provider, hasKey),
+        platformFallbacks: getPlatformFallbacks(),
       })
     })
   } catch (error) {
