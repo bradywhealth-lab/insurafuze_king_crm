@@ -21,6 +21,14 @@ export async function middleware(request: NextRequest) {
 
   const isAuthenticated = !!token
 
+  // Root route: public landing for visitors, dashboard for signed-in users
+  if (pathname === '/' && !isAuthenticated) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/welcome'
+    const response = NextResponse.rewrite(url)
+    return applySecurityHeaders(request, response)
+  }
+
   // Auth page - redirect authenticated users to dashboard
   if (pathname.startsWith('/auth')) {
     if (isAuthenticated) {
@@ -28,6 +36,12 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/'
       return NextResponse.redirect(url)
     }
+    const response = NextResponse.next()
+    return applySecurityHeaders(request, response)
+  }
+
+  // Public landing routes (unauthenticated users can access)
+  if (pathname === '/' || pathname.startsWith('/welcome')) {
     const response = NextResponse.next()
     return applySecurityHeaders(request, response)
   }
