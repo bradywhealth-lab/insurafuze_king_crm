@@ -40,8 +40,13 @@ export async function middleware(request: NextRequest) {
     return applySecurityHeaders(request, response)
   }
 
-  // Public landing routes (unauthenticated users can access)
-  if (pathname === '/' || pathname.startsWith('/welcome')) {
+  // Public landing routes for visitors; signed-in users stay in the app
+  if (pathname.startsWith('/welcome')) {
+    if (isAuthenticated) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
     const response = NextResponse.next()
     return applySecurityHeaders(request, response)
   }
