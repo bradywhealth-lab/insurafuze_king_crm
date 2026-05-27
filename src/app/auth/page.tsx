@@ -47,6 +47,7 @@ export default function AuthPage() {
   const [signupName, setSignupName] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('')
   const [organizationName, setOrganizationName] = useState('')
   const [forgotEmail, setForgotEmail] = useState('')
   const [resetTokenDisplay, setResetTokenDisplay] = useState<string | null>(null)
@@ -100,6 +101,16 @@ export default function AuthPage() {
 
     if (mode === 'signup' && (!signupName.trim() || !organizationName.trim() || !signupEmail.trim() || !signupPassword)) {
       setError('Name, organization, email, and password are required.')
+      return
+    }
+
+    if (mode === 'signup' && signupPassword.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+
+    if (mode === 'signup' && signupPassword !== signupConfirmPassword) {
+      setError('Passwords do not match.')
       return
     }
 
@@ -353,6 +364,7 @@ export default function AuthPage() {
                     <Input
                       type="password"
                       required
+                      minLength={mode === 'signup' ? 8 : undefined}
                       className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm"
                       placeholder="••••••••"
                       value={mode === 'login' ? loginPassword : signupPassword}
@@ -360,6 +372,22 @@ export default function AuthPage() {
                       onKeyDown={(e) => e.key === 'Enter' && void handleLoginSignup()}
                     />
                   </div>
+
+                  {mode === 'signup' && (
+                    <div>
+                      <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Confirm password</Label>
+                      <Input
+                        type="password"
+                        required
+                        minLength={8}
+                        className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm"
+                        placeholder="••••••••"
+                        value={signupConfirmPassword}
+                        onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void handleLoginSignup()}
+                      />
+                    </div>
+                  )}
 
                   {mode === 'login' && (
                     <div className="flex justify-end">

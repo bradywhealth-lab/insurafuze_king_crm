@@ -41,7 +41,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public landing routes for visitors; signed-in users stay in the app
-  if (pathname.startsWith('/welcome')) {
+  if (pathname === '/welcome' || pathname.startsWith('/welcome/')) {
     if (isAuthenticated) {
       const url = request.nextUrl.clone()
       url.pathname = '/'
