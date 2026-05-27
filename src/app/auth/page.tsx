@@ -47,6 +47,7 @@ export default function AuthPage() {
   const [signupName, setSignupName] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState('')
   const [organizationName, setOrganizationName] = useState('')
   const [forgotEmail, setForgotEmail] = useState('')
   const [resetTokenDisplay, setResetTokenDisplay] = useState<string | null>(null)
@@ -93,6 +94,26 @@ export default function AuthPage() {
   }
 
   const handleLoginSignup = async () => {
+    if (mode === 'login' && (!loginEmail.trim() || !loginPassword)) {
+      setError('Email and password are required.')
+      return
+    }
+
+    if (mode === 'signup' && (!signupName.trim() || !organizationName.trim() || !signupEmail.trim() || !signupPassword)) {
+      setError('Name, organization, email, and password are required.')
+      return
+    }
+
+    if (mode === 'signup' && signupPassword.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+
+    if (mode === 'signup' && signupPassword !== signupConfirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
@@ -126,6 +147,11 @@ export default function AuthPage() {
   }
 
   const handleForgotPassword = async () => {
+    if (!forgotEmail.trim()) {
+      setError('Email is required.')
+      return
+    }
+
     setLoading(true)
     setError(null)
     setResetTokenDisplay(null)
@@ -151,6 +177,16 @@ export default function AuthPage() {
   }
 
   const handleResetPassword = async () => {
+    if (!resetToken.trim() || !newPassword || !confirmPassword) {
+      setError('Reset token and password fields are required.')
+      return
+    }
+
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+
     setLoading(true)
     setError(null)
     if (newPassword !== confirmPassword) {
@@ -244,7 +280,7 @@ export default function AuthPage() {
           <div className="relative z-10 rounded-[28px] border border-white/10 bg-white/6 p-5">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-[#8dd6b4]" />
-              <p className="text-sm font-medium text-white">Auth flows included: signup, login, forgot password, reset password.</p>
+              <p className="text-sm font-medium text-white">Secure access, password recovery, and account protection are active.</p>
             </div>
             <p className="mt-2 text-sm leading-6 text-white/58">
               Use the token-based reset flow for internal/admin-controlled recovery, then return to login without losing your workspace context.
@@ -301,11 +337,11 @@ export default function AuthPage() {
                     <>
                       <div>
                         <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Owner name</Label>
-                        <Input className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="Your name" value={signupName} onChange={(e) => setSignupName(e.target.value)} />
+                        <Input required className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="Your name" value={signupName} onChange={(e) => setSignupName(e.target.value)} />
                       </div>
                       <div>
                         <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Organization</Label>
-                        <Input className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="King CRM Insurance Group" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} />
+                        <Input required className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="King CRM Insurance Group" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} />
                       </div>
                     </>
                   )}
@@ -314,6 +350,7 @@ export default function AuthPage() {
                     <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Email</Label>
                     <Input
                       type="email"
+                      required
                       className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm"
                       placeholder="you@company.com"
                       value={mode === 'login' ? loginEmail : signupEmail}
@@ -326,6 +363,8 @@ export default function AuthPage() {
                     <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Password</Label>
                     <Input
                       type="password"
+                      required
+                      minLength={mode === 'signup' ? 8 : undefined}
                       className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm"
                       placeholder="••••••••"
                       value={mode === 'login' ? loginPassword : signupPassword}
@@ -333,6 +372,22 @@ export default function AuthPage() {
                       onKeyDown={(e) => e.key === 'Enter' && void handleLoginSignup()}
                     />
                   </div>
+
+                  {mode === 'signup' && (
+                    <div>
+                      <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Confirm password</Label>
+                      <Input
+                        type="password"
+                        required
+                        minLength={8}
+                        className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm"
+                        placeholder="••••••••"
+                        value={signupConfirmPassword}
+                        onChange={(e) => setSignupConfirmPassword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void handleLoginSignup()}
+                      />
+                    </div>
+                  )}
 
                   {mode === 'login' && (
                     <div className="flex justify-end">
@@ -371,7 +426,7 @@ export default function AuthPage() {
                 </button>
                 <div>
                   <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Email address</Label>
-                  <Input type="email" className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="you@company.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void handleForgotPassword()} />
+                  <Input type="email" required className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="you@company.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void handleForgotPassword()} />
                 </div>
                 {error && <StatusCard tone="error" message={error} />}
                 {success && <StatusCard tone="success" message={success} />}
@@ -403,15 +458,15 @@ export default function AuthPage() {
                 </button>
                 <div>
                   <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Reset token</Label>
-                  <Input className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white font-mono shadow-sm" placeholder="Paste your reset token" value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
+                  <Input required className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white font-mono shadow-sm" placeholder="Paste your reset token" value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
                 </div>
                 <div>
                   <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">New password</Label>
-                  <Input type="password" className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                  <Input type="password" required minLength={8} className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
                 </div>
                 <div>
                   <Label className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-[#1f2a36]/52">Confirm password</Label>
-                  <Input type="password" className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void handleResetPassword()} />
+                  <Input type="password" required minLength={8} className="h-12 rounded-2xl border-[rgba(31,42,54,0.1)] bg-white shadow-sm" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void handleResetPassword()} />
                 </div>
                 {error && <StatusCard tone="error" message={error} />}
                 {success && <StatusCard tone="success" message={success} />}
